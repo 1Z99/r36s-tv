@@ -61,7 +61,10 @@ overlaid after scaling, not enlarged atlas border texels. Close-ups retain their
 crisp vector outlines and dark-green selected border trace. A cached SDL line
 fallback preserves world borders if the optional native overlay is unavailable.
 
-The idle world rotates slowly at 2.4 degrees/second, limited to 15 Hz after two
+Settings offers **Earth rotation speed**: Off, 0.5x, 1x, 2x, 4x and 8x.
+Use Left/Right to change speed or A to cycle; the choice persists between launches.
+The default 1x preserves the original 2.4 degrees/second rotation.
+The idle world rotates at the selected speed, limited to 15 Hz after two
 seconds without input. It pauses while the pointer hovers over the globe, while
 dragging, during menus, recent input or camera flights, in country views or
 close-up zoom, outside browsing, and when desktop input focus is inactive.

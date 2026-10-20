@@ -178,7 +178,8 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(sum(row["uuid"] == "20" for row in loaded.data["recent"]), 1)
 
     def test_invalid_state_never_overwritten(self):
-        for value in ([], {"favorites": []}, {"recent": ["bad"]}, {"volume": 101}, {"crt": "yes"}):
+        for value in ([], {"favorites": []}, {"recent": ["bad"]}, {"volume": 101}, {"crt": "yes"},
+                      *({"globe_rotation_speed": speed} for speed in (-1, 3, True, "fast", None))):
             with self.subTest(value=value):
                 backend._atomic_json(self.root / "state.json", value)
                 before = (self.root / "state.json").read_bytes()
@@ -194,6 +195,12 @@ class BackendTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 backend.Health(self.root)
             self.assertEqual((self.root / "health.json").read_bytes(), before)
+
+    def test_existing_state_defaults_to_original_rotation_speed(self):
+        backend._atomic_json(self.root / "state.json", {"volume": 42})
+        state = backend.State(self.root)
+        self.assertEqual(state.data["globe_rotation_speed"], 1)
+        self.assertEqual(state.data["volume"], 42)
 
     def test_atomic_write_failure_preserves_file(self):
         state = backend.State(self.root)

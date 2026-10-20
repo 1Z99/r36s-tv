@@ -122,7 +122,8 @@ def main():
                 ui.globe.cancel_flight()
                 ui.globe.lat, ui.globe.lon, ui.globe.zoom = 18., -20., .8
                 ui.globe.moving_until = 0
-                ui.pointer_x, ui.pointer_y, ui.last_input = 620., 440., time.monotonic()-3
+                ui.pointer_x, ui.pointer_y = 620., 440.
+                ui.last_input = ui.last_globe_touch = time.monotonic()-3
                 started_spin, longitude, samples = time.monotonic(), ui.globe.lon, []
                 while time.monotonic()-started_spin < 1.2:
                     tick = time.monotonic()
@@ -138,6 +139,7 @@ def main():
                 effects["world_render_median_ms"] = round(statistics.median(samples), 2)
                 ui.move_pointer(app.MAP_CENTER_X, app.MAP_CENTER_Y)
                 ui.last_input -= 3
+                ui.last_globe_touch -= 3
                 paused = ui.globe.lon
                 for _ in range(3):
                     ui.update()

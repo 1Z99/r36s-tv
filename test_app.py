@@ -322,6 +322,43 @@ class ControllerTests(unittest.TestCase):
         self.assertFalse(any(call.args[:4] == (10, 398, app.MAP_WIDTH-20, 40)
                              for call in self.ui.d.rect.call_args_list))
 
+    def test_earth_rotation_setting_cycles_and_persists_during_browse_and_playback(self):
+        self.assertEqual(self.ui.state.data["globe_rotation_speed"], 1)
+        for playback in (False, True):
+            self.ui.view = "video" if playback else "browse"
+            if playback:
+                self.ui.playing[0] = self.ui.selected()
+            self.ui.modal, self.ui.menu_index = "menu", 10 + int(playback)
+            for _ in app.GLOBE_ROTATION_SPEEDS:
+                self.ui.action("right")
+                speed = self.ui.state.data["globe_rotation_speed"]
+                self.assertEqual(State(self.temp.name).data["globe_rotation_speed"], speed)
+                self.assertEqual(self.ui.modal, "menu")
+            self.assertEqual(self.ui.state.data["globe_rotation_speed"], 1)
+            self.ui.action("left")
+            self.assertEqual(self.ui.state.data["globe_rotation_speed"], .5)
+            self.ui.action("ok")
+            self.assertEqual(self.ui.state.data["globe_rotation_speed"], 1)
+
+    def test_earth_rotation_speed_scales_motion_and_off_stops_it(self):
+        g = self.ui.globe
+        g.flight, g.trace_active, g.fade_until, g.zoom = None, False, 0., .8
+        distances = []
+        for speed in (0, 1, 4, 8):
+            self.ui.state.data["globe_rotation_speed"] = speed
+            g.lon = 0.
+            self.ui.last_input, self.ui.last_globe_touch, self.ui.idle_spinning = 0., 0., False
+            self.ui.pointer_x, self.ui.pointer_y = 620., 440.
+            for i in range(31):
+                with patch.object(app.time, "monotonic", return_value=100.+i*.1):
+                    self.ui.update()
+            distances.append(g.lon)
+            self.assertEqual(self.ui.idle_spinning, bool(speed))
+        self.assertEqual(distances[0], 0)
+        self.assertGreater(distances[1], 0)
+        self.assertAlmostEqual(distances[2], distances[1]*4)
+        self.assertAlmostEqual(distances[3], distances[1]*8)
+
     def test_country_selection_starts_flight_and_finite_name_reveal(self):
         with patch.object(app.time, "monotonic", return_value=100.):
             self.ui.select_country("SY")
@@ -431,7 +468,7 @@ class ControllerTests(unittest.TestCase):
     def test_world_spins_then_pauses_on_hover_drag_menu_and_country(self):
         g = self.ui.globe
         g.flight, g.trace_active, g.fade_until, g.zoom, g.lon = None, False, 0., .8, -20.
-        self.ui.last_input = 0
+        self.ui.last_input = self.ui.last_globe_touch = 0
         self.ui.pointer_x, self.ui.pointer_y = 620., 440.
         for now in (100., 100.1):
             with patch.object(app.time, "monotonic", return_value=now):
@@ -444,7 +481,8 @@ class ControllerTests(unittest.TestCase):
             self.ui.update()
         self.assertFalse(self.ui.idle_spinning)
         self.assertEqual(g.lon, position)
-        self.ui.pointer_x, self.ui.pointer_y, self.ui.last_input = 620., 440., 0
+        self.ui.pointer_x, self.ui.pointer_y = 620., 440.
+        self.ui.last_globe_touch = 0
         for field, value in (("drag_origin", (200, 260)), ("modal", "menu"), ("country", "SY")):
             with self.subTest(field=field):
                 setattr(self.ui, field, value)
@@ -453,13 +491,40 @@ class ControllerTests(unittest.TestCase):
                 self.assertFalse(self.ui.idle_spinning)
                 setattr(self.ui, field, None if field == "drag_origin" else "")
 
+    def test_idle_spin_survives_remote_cursor_motion_and_busy_ui(self):
+        g = self.ui.globe
+        g.flight, g.trace_active, g.fade_until, g.zoom, g.lon = None, False, 0., .8, -20.
+        self.ui.last_input, self.ui.last_globe_touch, self.ui.idle_spinning = 0., 0., False
+        self.ui.pointer_x, self.ui.pointer_y = 620., 440.
+        for now in (100., 100.5):
+            with patch.object(app.time, "monotonic", return_value=now):
+                self.ui.action("right")
+                self.ui.move_pointer(540., 440.)
+                self.ui.update()
+        self.assertTrue(self.ui.idle_spinning)
+        self.assertGreater(g.lon, -20.)
+        with patch.object(app.time, "monotonic", return_value=101.):
+            self.ui.move_pointer(app.MAP_CENTER_X, app.MAP_CENTER_Y)
+            self.ui.update()
+        self.assertFalse(self.ui.idle_spinning)
+        spin_started = self.ui.last_globe_touch
+        self.assertGreaterEqual(spin_started, 100.)
+        self.assertEqual(self.ui.last_globe_touch, spin_started)
+        with patch.object(app.time, "monotonic", return_value=102.):
+            self.ui.focus = "globe"
+            self.ui.action("minus")
+        self.assertEqual(self.ui.last_globe_touch, 102.)
+        with patch.object(app.time, "monotonic", return_value=103.):
+            self.ui.action("plus")
+        self.assertEqual(self.ui.last_globe_touch, 103.)
+
     def test_idle_rotation_is_time_based_and_border_animation_is_only_a_redraw(self):
         g = self.ui.globe
         g.flight, g.trace_active, g.fade_until, g.zoom = None, False, 0., .8
         positions = []
         for fps in (10, 30):
             g.lon = -20.
-            self.ui.last_input, self.ui.idle_spinning = 0., False
+            self.ui.last_input, self.ui.last_globe_touch, self.ui.idle_spinning = 0., 0., False
             self.ui.pointer_x, self.ui.pointer_y = 620., 440.
             for i in range(fps*3+1):
                 with patch.object(app.time, "monotonic", return_value=100.+i/fps):

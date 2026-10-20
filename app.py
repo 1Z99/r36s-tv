@@ -16,7 +16,7 @@ import time
 import zlib
 
 from tv_backend import (Catalog, Health, State, country_at, country_center,
-                        filter_stations, project, station_location, GLOBE_RESOLUTIONS)
+                        filter_stations, project, station_location, GLOBE_RESOLUTIONS, GLOBE_ROTATION_SPEEDS)
 from tv_media import MediaError, Player
 from tv_globe import Globe
 from tv_quality import resolve_station, quality_warning
@@ -299,6 +299,7 @@ class App:
         self.input_active, self.handheld = True, False
         self.reported_focus_events = set()
         self.notice, self.notice_until, self.last_input = "", 0, time.monotonic()
+        self.last_globe_touch = self.last_input
         self.last_spin_frame, self.idle_spinning = self.last_input, False
         self.spin_started = self.last_input
         self.error = ""
@@ -509,7 +510,9 @@ class App:
                  "Globe resolution: %s px" % self.state.data["globe_resolution"],
                 "CRT overlay: " + ("ON" if s["crt"] else "OFF"),
                 "CRT intensity: " + ("HIGH" if s["intense"] else "NORMAL"),
-                "CRT animation: " + ("ON" if s["animated"] else "OFF"),
+                 "CRT animation: " + ("ON" if s["animated"] else "OFF"),
+                 "Earth rotation speed: " + ("OFF" if not s["globe_rotation_speed"] else
+                                            "%gx" % s["globe_rotation_speed"]),
                  "Scan 12 stations for archive", "Refresh selected country", "Stop playback", "Exit TV"]
         return (["Resolution / frame rate"] + items) if self.has_playback() else items
 
@@ -611,20 +614,20 @@ class App:
             self.matrix()
         elif index == 5:
             self.slots = []
-        elif index in (6, 7, 8, 9):
+        elif index in (6, 7, 8, 9, 10):
             self.modal = "menu"
             self.adjust_menu_setting()
-        elif index == 10:
+        elif index == 11:
             if not self.demo:
                 self.work("health", lambda: self.health.scan(self.stations, cancel=self.cancel))
             self.toast("Checking HTTP reachability, not full video decoding")
-        elif index == 11:
+        elif index == 12:
             if not self.demo:
                 self.request_country(refresh=True)
-        elif index == 12:
+        elif index == 13:
             self.stop()
             self.view = "browse"
-        elif index == 13:
+        elif index == 14:
             self.modal, self.menu_index = "exit", 0
 
     def adjust_menu_setting(self, direction=None):
@@ -642,6 +645,10 @@ class App:
         elif index in (7, 8, 9):
             key = ("crt", "intense", "animated")[index-7]
             self.setting(key, not self.state.data[key] if direction is None else direction > 0)
+        elif index == 10:
+            old = self.state.data["globe_rotation_speed"]
+            choices = GLOBE_ROTATION_SPEEDS
+            self.setting("globe_rotation_speed", choices[(choices.index(old)+(direction or 1)) % len(choices)])
         else:
             return False
         self.dirty = True
@@ -676,6 +683,8 @@ class App:
 
     def handle_action(self, action):
         self.last_input, self.dirty = time.monotonic(), True
+        if action in ("minus", "plus") or (self.focus == "globe" and action in ("up", "down", "left", "right")):
+            self.last_globe_touch = self.last_input
         if action in ("menu", "search", "select", "back"):
             self.globe.cancel_flight()
         if self.modal == "error":
@@ -880,11 +889,10 @@ class App:
                 self.players[self.pending_audio].set_audible(True)
             self.pending_audio = None
         now = time.monotonic()
-        over_globe = (0 <= self.pointer_x < MAP_WIDTH and 84 <= self.pointer_y < 438
-                      and (self.pointer_x-MAP_CENTER_X)**2+(self.pointer_y-MAP_CENTER_Y)**2
-                      <= (MAP_RADIUS*self.globe.zoom)**2)
-        can_spin = (self.view == "browse" and not self.modal and not self.country and self.input_active
-                    and self.drag_origin is None and not over_globe and now-self.last_input > 2
+        over_globe = self.pointer_on_globe(self.pointer_x, self.pointer_y)
+        can_spin = (bool(self.state.data["globe_rotation_speed"])
+                    and self.view == "browse" and not self.modal and not self.country and self.input_active
+                    and self.drag_origin is None and not over_globe and now-self.last_globe_touch > 2
                     and self.globe.flight is None and self.globe.zoom <= 1.5)
         if can_spin and not self.idle_spinning:
             self.spin_started = now
@@ -894,7 +902,7 @@ class App:
         self.globe.spinning = self.idle_spinning
         if can_spin and now-self.last_spin_frame >= 1/15:
             ramp = min(1., max(0., (now-self.spin_started)/.8))
-            speed = 2.4*ramp*ramp*(3-2*ramp)
+            speed = 2.4*self.state.data["globe_rotation_speed"]*ramp*ramp*(3-2*ramp)
             self.globe.lon = (self.globe.lon+speed*min(.15, now-self.last_spin_frame)+180) % 360-180
             self.last_spin_frame, changed = now, True
         if self.view == "browse" and not self.modal:
@@ -948,6 +956,13 @@ class App:
             self.redraw_until = time.monotonic()+.35
             self.dirty = True
 
+    def pointer_on_globe(self, x=None, y=None):
+        if x is None:
+            x, y = self.pointer_x, self.pointer_y
+        radius = MAP_RADIUS*self.globe.zoom
+        return (0 <= x < MAP_WIDTH and 84 <= y < 438
+                and (x-MAP_CENTER_X)**2+(y-MAP_CENTER_Y)**2 <= radius*radius)
+
     def move_pointer(self, x, y):
         if not self.input_active:
             return
@@ -957,11 +972,15 @@ class App:
         if not dx and not dy:
             return
         self.pointer_x, self.pointer_y, self.pointer_active = x, y, True
-        self.last_input, self.dirty = time.monotonic(), True
+        now = time.monotonic()
+        self.last_input, self.dirty = now, True
         if self.drag_origin is not None:
+            self.last_globe_touch = now
             self.globe.rotate(-dx*.35, dy*.3)
             if math.hypot(x-self.drag_origin[0], y-self.drag_origin[1]) > 3:
                 self.dragged = True
+        elif self.pointer_on_globe(x, y):
+            self.last_globe_touch = now
         elif self.modal == "search" and y >= 250:
             self.keyboard_row = max(0, min(4, round((y-273)/38)))
             boxes = key_geometry(self.keyboard_row)
@@ -979,6 +998,7 @@ class App:
         x, y = self.pointer_x, self.pointer_y
         if self.view == "browse" and not self.modal and x < MAP_WIDTH and 84 <= y < 438:
             self.drag_origin, self.dragged = (x, y), False
+            self.last_globe_touch = time.monotonic()
         else:
             self.click_pointer()
 
@@ -1420,6 +1440,7 @@ def main(argv=None):
                         repeat_at.clear()
                         break
                     if app.focus == "globe" and app.view == "browse" and not app.modal and action in ("up", "down", "left", "right"):
+                        app.last_globe_touch = started
                         app.globe.rotate({"left": -80, "right": 80}.get(action, 0)*delta,
                                          {"up": 65, "down": -65}.get(action, 0)*delta)
                         app.dirty = True

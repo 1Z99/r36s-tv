@@ -30,6 +30,7 @@ COUNTRY_URL = "https://iptv-org.github.io/iptv/countries/{}.m3u"
 MAX_DOWNLOAD = 32 * 1024 * 1024
 RECENT_LIMIT = 50
 GLOBE_RESOLUTIONS = (128, 160, 192, 224, 256, 320, 384, 448, 512)
+GLOBE_ROTATION_SPEEDS = (0, 0.5, 1, 2, 4, 8)
 STATION_FIELDS = ("uuid", "name", "url", "countryCode", "country", "language",
                   "tags", "user_agent", "referrer", "favicon", "alternatives")
 LANGUAGE_NAMES = dict(eng="English", deu="German", ger="German", fra="French",
@@ -299,7 +300,7 @@ class State:
         if not isinstance(self.data, dict):
             raise ValueError("State must be an object")
         defaults = dict(favorites={}, recent=[], volume=70, crt=False,
-                        intense=False, animated=False, globe_resolution=224)
+                        intense=False, animated=False, globe_resolution=224, globe_rotation_speed=1)
         for key, value in defaults.items():
             self.data.setdefault(key, value)
         self._validate()
@@ -315,6 +316,8 @@ class State:
                 or not 0 <= data["volume"] <= 100
                 or type(data.get("globe_resolution")) is not int
                 or data["globe_resolution"] not in GLOBE_RESOLUTIONS
+                or type(data.get("globe_rotation_speed")) not in (int, float)
+                or data["globe_rotation_speed"] not in GLOBE_ROTATION_SPEEDS
                 or any(type(data.get(key)) is not bool for key in ("crt", "intense", "animated"))):
             raise ValueError("Invalid state in %s" % self.path)
 
