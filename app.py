@@ -16,7 +16,7 @@ import time
 import zlib
 
 from tv_backend import (Catalog, Health, State, country_at, country_center,
-                        filter_stations, project, station_location, GLOBE_RESOLUTIONS, GLOBE_ROTATION_SPEEDS)
+                        filter_stations, GLOBE_RESOLUTIONS, GLOBE_ROTATION_SPEEDS)
 from tv_media import MediaError, Player
 from tv_globe import Globe
 from tv_quality import resolve_station, quality_warning
@@ -274,7 +274,7 @@ class App:
         self.catalog, self.state, self.health = Catalog(data_dir, ASSETS), State(data_dir), Health(data_dir)
         self.globe.set_resolution(self.state.data["globe_resolution"])
         self.stations = []
-        self.rows, self.markers = [], []
+        self.rows, self.count_label = [], None
         self.country, self.query, self.tab, self.index = "", "", 0, 0
         self.focus, self.view = "list", "browse"
         self.modal, self.menu_index, self.keyboard_row, self.keyboard_col = "", 0, 0, 0
@@ -288,7 +288,6 @@ class App:
         self.frame_cells, self.warned_cells = set(), set()
         self.playback_notices = {}
         self.quality_rows = []
-        self.positions = {}
         self.channel_reveals, self.reveal_salt = {}, 0
         self.reveal_tick = 0.
         self.pointer_x, self.pointer_y, self.pointer_active = 320., 438., False
@@ -348,19 +347,11 @@ class App:
         if not self.demo and not self.country and self.tab in (0, 3):
             self.rows = []
         self.index = next((i for i, row in enumerate(self.rows) if row["uuid"] == old), 0)
-        self.markers = []
-        if self.country in self.by_country:
-            feature = self.by_country[self.country]
-            # A bounded sample keeps the small globe legible and responsive.
-            sample = self.rows[:120]
-            selected = self.selected()
-            if selected and selected not in sample:
-                sample = sample[:119] + [selected]
-            for row in sample:
-                key = (self.country, row["uuid"])
-                if key not in self.positions:
-                    self.positions[key] = station_location(feature, row["uuid"])
-                self.markers.append((row["uuid"], *self.positions[key]))
+        # Instead of per-channel dots, the selected country shows its live
+        # channel total at its own centroid on the globe.
+        feature = self.by_country.get(self.country)
+        count = len(self.stations) if feature else 0
+        self.count_label = (str(count), *country_center(feature)) if feature and count else None
         self.dirty = True
 
     def selected(self):
@@ -815,9 +806,6 @@ class App:
         elif action in ("up", "down", "left", "right") and self.rows:
             delta = {"up": -1, "down": 1, "left": -VISIBLE_ROWS, "right": VISIBLE_ROWS}[action]
             self.index = max(0, min(len(self.rows)-1, self.index+delta))
-            row = self.selected()
-            if self.country in self.by_country and not any(m[0] == row["uuid"] for m in self.markers):
-                self.markers = self.markers[:119] + [(row["uuid"], *station_location(self.by_country[self.country], row["uuid"]))]
         elif action == "ok":
             self.play(self.selected())
 
@@ -1094,7 +1082,7 @@ class App:
                 d.rect(x-4, 47, 149, 28, (14, 54, 29, 255))
                 d.rect(x-4, 73, 149, 2, GREEN)
             d.text(tab.upper(), x+6, 53, GREEN if i == self.tab else DIM, 13)
-        self.globe.draw(self.country, self.markers, self.selected().get("uuid", ""),
+        self.globe.draw(self.country, label=self.count_label,
                         viewport=MAP_VIEWPORT, bounds=(0, 84, MAP_WIDTH, 354))
         if self.focus == "globe":
             d.line(MAP_CENTER_X-12, MAP_CENTER_Y, MAP_CENTER_X+12, MAP_CENTER_Y, GREEN)
@@ -1211,10 +1199,14 @@ class App:
             keyboard(d, self.keyboard_row, self.keyboard_col)
             self.footer((("A", "Type"), ("B", "Delete"), ("X", "Find"), ("Y", "Space")))
             return
-        if self.modal in ("menu", "countries", "quality"):
+        if self.modal in ("menu", "countries", "quality", "exit"):
             d.copy(d.backdrop, (0, 0, 640, 480))
-            self.header("Settings" if self.modal != "countries" else "Countries")
-            if self.modal == "countries":
+            self.header("Settings" if self.modal == "menu" else "Countries" if self.modal == "countries"
+                        else "Exit")
+            if self.modal == "exit":
+                title, items = "LEAVE 227 TV?", ["Keep watching", "Exit to EmulationStation"]
+                caption = "Your favorites and preferences stay saved"
+            elif self.modal == "countries":
                 title, items = "Browse countries", ["%s   %s" % pair for pair in self.country_items()]
                 caption = "Choose a country to explore its broadcasts"
             elif self.modal == "quality":
@@ -1237,12 +1229,7 @@ class App:
             self.footer((("A", "Select"), ("B", "Back"), ("D-PAD", "Navigate / adjust")))
             return
         d.rect(0, 0, 640, 480, (0, 0, 0, 190))
-        if self.modal == "exit":
-            items, title = ["Keep watching", "Exit to EmulationStation"], "LEAVE THE ATLAS?"
-        elif self.modal == "error":
-            title, items = "TV DIAGNOSTIC", []
-        else:
-            title, items = "TV DIAGNOSTIC", []
+        title, items = "TV DIAGNOSTIC", []
         d.rect(49, 49, 542, 382, BG)
         d.rect(49, 49, 542, 382, EDGE, True)
         d.text(title, 69, 65, GREEN, 22)

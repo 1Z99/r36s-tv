@@ -12,7 +12,7 @@ from tv_backend import GLOBE_RESOLUTIONS, country_center, project, _polygons, _a
 from tv_filter import Scaler
 
 FADE_SECONDS = .20
-TRACE_COLORS = ((0, 65, 29), (0, 96, 42), (0, 136, 60), (14, 178, 78))
+TRACE_COLORS = ((120, 84, 18), (160, 116, 26), (203, 152, 34), (242, 201, 76))
 
 
 class Rect(C.Structure):
@@ -112,8 +112,8 @@ class Globe:
             Path(__file__).resolve().parent / "assets/globe-atlas.z")
         # Borders are overlaid at native screen resolution after smooth scaling,
         # rather than magnifying the atlas's tiny border/grid texels.
-        palette = ((17, 21, 26, 255), (40, 48, 57, 255), (40, 48, 57, 255),
-                   (17, 21, 26, 255), (40, 48, 57, 255))
+        palette = ((5, 19, 12, 255), (13, 62, 34, 255), (13, 62, 34, 255),
+                   (5, 19, 12, 255), (13, 62, 34, 255))
         pixels = bytearray(len(self.ids)*4)
         for channel in range(4):
             table = bytes([color[channel] for color in palette] + [0]*251)
@@ -270,8 +270,8 @@ class Globe:
         pixels = bytearray(self._base)
         if country and country in self.codes:
             number = self.codes.index(country)
-            selected = (b"\x11\x15\x1a\xff", b"\x14\x4e\x2c\xff", b"\x00\x69\x2e\xff",
-                         b"\x11\x15\x1a\xff", b"\x14\x4e\x2c\xff")
+            selected = (b"\x05\x13\x0c\xff", b"\x9e\x78\x20\xff", b"\xf2\xc9\x4c\xff",
+                         b"\x05\x13\x0c\xff", b"\x9e\x78\x20\xff")
             # Only country changes touch atlas pixels; rotations never enter here.
             start = self.ids.find(bytes([number]))
             needle = bytes([number])
@@ -461,7 +461,7 @@ class Globe:
                         spans.append(Rect(start, y, end-start, 1))
         for selected, spans in fills.items():
             if spans:
-                color = (20, 78, 44, 255) if selected else (40, 48, 57, 255)
+                color = (158, 120, 32, 255) if selected else (13, 62, 34, 255)
                 self._check(self.d.sdl.SDL_SetRenderDrawColor(self.d.renderer, *color))
                 self._check(self.d.sdl.SDL_RenderFillRects(self.d.renderer, (Rect*len(spans))(*spans), len(spans)))
 
@@ -517,7 +517,7 @@ class Globe:
             self.trace_active = bool(country and self.trace_length)
             self.selection_key = key
         sdl, renderer = self.d.sdl, self.d.renderer
-        self._check(sdl.SDL_SetRenderDrawColor(renderer, 0, 105, 46, alpha))
+        self._check(sdl.SDL_SetRenderDrawColor(renderer, 242, 201, 76, alpha))
         for points in self.selection_lines:
             self._check(sdl.SDL_RenderDrawLines(renderer, points, len(points)))
         if not self.trace_active or not alpha:
@@ -555,7 +555,7 @@ class Globe:
             for selected, points in self.vector_lines:
                 if selected:
                     continue
-                color = (77, 91, 100, round(255*opacity))
+                color = (64, 196, 104, round(255*opacity))
                 self._check(self.d.sdl.SDL_SetRenderDrawColor(self.d.renderer, *color))
                 self._check(self.d.sdl.SDL_RenderDrawLines(self.d.renderer, points, len(points)))
         elif not self.world_borders_cached:
@@ -581,7 +581,7 @@ class Globe:
                         if len(path) > 1:
                             self.world_lines.append((Point*len(path))(*(Point(*p) for p in path)))
                 self.world_line_key = key
-            self._check(self.d.sdl.SDL_SetRenderDrawColor(self.d.renderer, 77, 91, 100, 255))
+            self._check(self.d.sdl.SDL_SetRenderDrawColor(self.d.renderer, 64, 196, 104, 255))
             for points in self.world_lines:
                 self._check(self.d.sdl.SDL_RenderDrawLines(self.d.renderer, points, len(points)))
         self._selected_border(viewport, country, refined, clip, round(255*opacity) if refined else 255)
@@ -592,10 +592,10 @@ class Globe:
                                                       round(vy+vh/2+radius*vh/350*math.sin(i*math.tau/128)))
                                                for i in range(129)))
                 self.rim_key = key
-            self._check(self.d.sdl.SDL_SetRenderDrawColor(self.d.renderer, 87, 100, 110, 255))
+            self._check(self.d.sdl.SDL_SetRenderDrawColor(self.d.renderer, 64, 196, 104, 255))
             self._check(self.d.sdl.SDL_RenderDrawLines(self.d.renderer, self.rim_points, 129))
 
-    def draw(self, country="", markers=(), selected="", viewport=(0, 88, 350, 350), bounds=None):
+    def draw(self, country="", label=None, viewport=(0, 88, 350, 350), bounds=None):
         d, sdl = self.d, self.d.sdl
         self._ensure_surfaces(viewport[2], viewport[3])
         previous = Rect()
@@ -629,7 +629,7 @@ class Globe:
                 if projected is not None:
                     self._smooth_surface(texture, size, index, projected, borders=True)
                 elif refined:
-                    d.rect(0, 0, size, size, (17, 21, 26, 255))
+                    d.rect(0, 0, size, size, (5, 19, 12, 255))
                     self._vector_map(size, country, sinlat, coslat, sinlon, coslon, radius)
                     self._smooth_surface(texture, size, index)
                 else:
@@ -677,19 +677,18 @@ class Globe:
             else:
                 self.fade_from = None
             self._native_outlines(viewport, country, refined, clip, opacity)
-            for uuid, marker_lat, marker_lon in markers:
-                mlat, mlon = math.radians(marker_lat), math.radians(marker_lon)
+            if label:
+                text, label_lat, label_lon = label
+                mlat, mlon = math.radians(label_lat), math.radians(label_lon)
                 delta, c = mlon-lon, math.cos(mlat)
                 depth = math.sin(mlat)*sinlat+c*coslat*math.cos(delta)
                 if depth >= 0:
                     x = vx+vw/2+radius*c*math.sin(delta)*vw/350
                     y = vy+vh/2-radius*(math.sin(mlat)*coslat-c*sinlat*math.cos(delta))*vh/350
-                    if not (clip.x-6 <= x < clip.x+clip.w+6 and clip.y-6 <= y < clip.y+clip.h+6):
-                        continue
-                    color = (0, 255, 65, 255) if uuid == selected else (180, 255, 203, 255)
-                    d.rect(x-2, y-2, 4, 4, color)
-                    if uuid == selected:
-                        d.rect(x-6, y-6, 12, 12, color, True)
+                    if clip.x-30 <= x < clip.x+clip.w+30 and clip.y-24 <= y < clip.y+clip.h+24:
+                        # Plain amber numeral matching the selected country fill.
+                        tw, th = self.d.measure(text, 18)
+                        d.text(text, round(x-tw/2), round(y-th/2), (242, 201, 76, 255), 18)
         finally:
             self._check(sdl.SDL_RenderSetClipRect(d.renderer, C.byref(previous) if clipped else None))
 

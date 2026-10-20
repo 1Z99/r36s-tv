@@ -263,7 +263,7 @@ class FilterTests(unittest.TestCase):
                     self.assertTrue(self.scaler.overlay_borders(dest, width, height, segments, 0, 0, zoom),
                                     self.scaler.error)
                     self.assertEqual(C.addressof(dest), address)
-                    self.assertEqual(bytes(dest[(50*width+50)*4:(50*width+51)*4]), bytes((77, 91, 100, 255)))
+                    self.assertEqual(bytes(dest[(50*width+50)*4:(50*width+51)*4]), bytes((64, 196, 104, 255)))
                     cross = [dest[(50*width+i)*4] if vertical else dest[(i*width+50)*4]
                              for i in range(101)]
                     self.assertEqual(sum(value > 0 for value in cross), 1)
@@ -281,12 +281,12 @@ class FilterTests(unittest.TestCase):
         source = (C.c_uint8 * 4)(0, 0, 0, 255)
         dest = self.scaler.scale(source, 1, 1, 101, 101)
         self.assertTrue(self.scaler.overlay_borders(dest, 101, 101, segments, lat, lon, .8))
-        self.assertGreater(dest[(50*101+50)*4], 70)
+        self.assertGreater(dest[(50*101+50)*4+1], 70)
         self.assertEqual(dest[(45*101+50)*4], 0)
         normalized = self.scaler.scale(source, 1, 1, 101, 101)
         self.assertIs(dest, normalized)
         self.assertTrue(self.scaler.overlay_borders(dest, 101, 101, segments, lat, lon+360*1000, .8))
-        self.assertGreater(dest[(50*101+50)*4], 70)
+        self.assertGreater(dest[(50*101+50)*4+1], 70)
 
     def test_borders_behind_and_normalized_horizon_clipping(self):
         def render(points):
@@ -310,7 +310,7 @@ class FilterTests(unittest.TestCase):
             self.assertTrue(self.scaler.overlay_borders(dest, 100, 100, segments, 0, 0, .8))
             for y in (49, 50):
                 self.assertEqual(bytes(dest[(y*100+50)*4:(y*100+51)*4]),
-                                 bytes((38, 45, 50, 127 if alpha == 0 else 255)))
+                                 bytes((32, 98, 52, 127 if alpha == 0 else 255)))
             self.assertEqual(dest[(48*100+50)*4], 0)
             self.assertEqual(dest[(51*100+50)*4], 0)
 

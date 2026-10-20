@@ -134,8 +134,8 @@ class RenderTests(unittest.TestCase):
 
     def test_world_palette_does_not_enlarge_grid_or_political_border_texels(self):
         g = self.globe
-        for style, color in ((0, (17, 21, 26, 255)), (1, (40, 48, 57, 255)),
-                              (2, (40, 48, 57, 255)), (3, (17, 21, 26, 255)), (4, (40, 48, 57, 255))):
+        for style, color in ((0, (5, 19, 12, 255)), (1, (13, 62, 34, 255)),
+                              (2, (13, 62, 34, 255)), (3, (5, 19, 12, 255)), (4, (13, 62, 34, 255))):
             index = g.styles.index(style)
             self.assertEqual(g._base[index*4:index*4+4], bytes(color))
 
@@ -169,7 +169,7 @@ class RenderTests(unittest.TestCase):
                 visible = 0
                 for x in range(171, 179):
                     r, green, b, _ = pixels[(263*640+x)*4:(263*640+x)*4+4]
-                    visible += green >= 60 and b > green > r
+                    visible += green >= 120 and green > b > r
                 self.assertGreater(visible, 0, "Border missing at zoom %s" % zoom)
                 self.assertLessEqual(visible, 2, "World border became thick at zoom %s" % zoom)
 
@@ -193,7 +193,7 @@ class RenderTests(unittest.TestCase):
             self.assertTrue(paths)
             self.assertIs(paths, g.world_lines)
             pixels = self.pixels()
-            self.assertTrue(any(pixels[(263*640+x)*4:(263*640+x)*4+4] == bytes((77, 91, 100, 255))
+            self.assertTrue(any(pixels[(263*640+x)*4:(263*640+x)*4+4] == bytes((64, 196, 104, 255))
                                 for x in range(173, 178)))
 
     def test_initial_zoom_and_switchable_globe_resolution(self):
@@ -269,8 +269,8 @@ class RenderTests(unittest.TestCase):
         with patch.object(g, "_mesh", wraps=g._mesh) as mesh, patch.object(g, "_colorize", wraps=g._colorize) as color:
             g.draw()
             texture = g.cached
-            g.draw(markers=(("a", 18, -20),), selected="a")
-            g.draw(markers=(("a", 20, -15),), selected="b")
+            g.draw(label=("a", 18, -20))
+            g.draw(label=("a", 20, -15))
             self.assertEqual(mesh.call_count, 1)
             self.assertEqual(color.call_count, 1)
             g.rotate(6, 5)
@@ -306,23 +306,28 @@ class RenderTests(unittest.TestCase):
                     # The center normal inverts to exactly the camera coordinates.
                     self.assertAlmostEqual(g._uv[1], (90-lat)/180, places=5)
 
-    def test_screenshot_style_selection_and_marker_projection(self):
+    def test_screenshot_style_selection_and_country_label(self):
         g = self.globe
         g.lat, g.lon = 51, 10
         self.display.rect(0, 0, 640, 480, (3, 4, 5, 255))
         g.draw()
         pixels = self.pixels()
         center = (263*640+175)*4
-        self.assertEqual(pixels[center:center+4], bytes((40, 48, 57, 255)))
+        self.assertEqual(pixels[center:center+4], bytes((13, 62, 34, 255)))
         for x, y in ((0, 87), (350, 263), (175, 438)):
             offset = (y*640+x)*4
             self.assertEqual(pixels[offset:offset+4], bytes((3, 4, 5, 255)))
         g.draw("DE")
-        self.assertEqual(self.pixels()[center:center+4], bytes((20, 78, 44, 255)))
-        with patch.object(g, "_mesh", wraps=g._mesh) as mesh:
-            g.draw("DE", (("front", 51, 10), ("back", -51, -170)), "front")
-            self.assertEqual(self.pixels()[center:center+4], bytes((0, 255, 65, 255)))
+        self.assertEqual(self.pixels()[center:center+4], bytes((158, 120, 32, 255)))
+        with patch.object(g, "_mesh", wraps=g._mesh) as mesh, \
+                patch.object(self.display, "text", wraps=self.display.text) as drawn:
+            g.draw("DE", label=("3", 51, 10))
             self.assertEqual(mesh.call_count, 0)
+            calls = [call for call in drawn.call_args_list if call.args[0] == "3"]
+            # One plain green numeral, the same raster as the country name.
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0].args[3], (242, 201, 76, 255))
+            self.assertEqual(calls[0].args[4], 18)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "globe.png"
             self.display.screenshot(path)
@@ -342,7 +347,7 @@ class RenderTests(unittest.TestCase):
         for zoom in (.72, 2, 8):
             self.display.rect(0, 0, 640, 480, (3, 4, 5, 255))
             g.zoom = zoom
-            g.draw(markers=(("pole", 90, 180),), selected="pole")
+            g.draw(label=("9", 90, -180))
             pixels = self.pixels()
             for x, y in ((0, 87), (350, 263), (175, 438)):
                 offset = (y*640+x)*4
@@ -363,12 +368,12 @@ class RenderTests(unittest.TestCase):
                     g.draw("AA")
                     pixels = self.pixels()
                     center = (263*640+175)*4
-                    self.assertEqual(pixels[center:center+4], bytes((17, 21, 26, 255)))
+                    self.assertEqual(pixels[center:center+4], bytes((5, 19, 12, 255)))
                     inside = ((263-round(150*zoom*math.sin(math.radians(3))))*640+175)*4
-                    self.assertEqual(pixels[inside:inside+4], bytes((20, 78, 44, 255)))
+                    self.assertEqual(pixels[inside:inside+4], bytes((158, 120, 32, 255)))
                     edge = round(175+150*zoom*math.cos(math.radians(6))*math.sin(math.radians(8)))
-                    colors = {bytes((*color, 255)) for color in ((0, 105, 46), (0, 65, 29), (0, 96, 42),
-                                                                (0, 136, 60), (14, 178, 78))}
+                    colors = {bytes((*color, 255)) for color in ((242, 201, 76), (120, 84, 18),
+                                                                (160, 116, 26), (203, 152, 34))}
                     green = sum(pixels[(263*640+x)*4:(263*640+x)*4+4] in colors
                                 for x in range(edge-3, edge+4))
                     self.assertGreater(green, 0)
@@ -381,8 +386,8 @@ class RenderTests(unittest.TestCase):
         g.lat, g.lon, g.zoom = 35., 38., 8.
         self.display.rect(0, 0, 640, 480, (3, 4, 5, 255))
         with patch.object(g, "_vector_map", wraps=g._vector_map) as render:
-            for selected in ("one", "two"):
-                g.draw("SY", (("one", 35, 38),), selected,
+            for label in (("one", 35., 38.), None):
+                g.draw("SY", label=label,
                        viewport=(4, 60, 406, 406), bounds=(0, 84, 414, 354))
             self.assertEqual(render.call_count, 1)
         pixels = self.pixels()
@@ -399,7 +404,7 @@ class RenderTests(unittest.TestCase):
             g.draw("DL")
             west = self.pixels()
             center = (263*640+175)*4
-            self.assertEqual(west[center:center+4], bytes((20, 78, 44, 255)))
+            self.assertEqual(west[center:center+4], bytes((158, 120, 32, 255)))
             g.lon = 180.
             g.draw("DL")
             self.assertLess(sum(a != b for a, b in zip(west, self.pixels())), 100)
@@ -466,7 +471,7 @@ class RenderTests(unittest.TestCase):
             self.assertEqual(sdl.SDL_SetRenderTarget(d.renderer, target), 0)
             clip = Rect(10, 100, 200, 200)
             sdl.SDL_RenderSetClipRect(d.renderer, C.byref(clip))
-            g.draw(markers=(("a", 18, -20),))
+            g.draw(label=("a", 18, -20))
             self.assertEqual(sdl.SDL_GetRenderTarget(d.renderer), target)
             actual = Rect()
             sdl.SDL_RenderGetClipRect(d.renderer, C.byref(actual))
@@ -495,11 +500,12 @@ def benchmark(args):
         g.draw()
         startup = (time.perf_counter()-started)*1000
         rotations, cached = [], []
-        markers = tuple((str(i), i*5-60, i*13-170) for i in range(25))
+        label = ("42", 18., -20.)
         for frame in range(args.frames+5):
             g.rotate(3, .1 if frame % 60 < 30 else -.1)
             started = time.perf_counter()
-            g.draw(markers=markers, selected=str(frame % 25))
+            # Text overlay forces the redraw path of the old per-channel dots.
+            g.draw(label=label if frame % 2 else None)
             # Flush the software render queue, without display/vsync latency.
             sdl = d.sdl
             sdl.SDL_SetRenderTarget(d.renderer, g.cached)
@@ -508,13 +514,13 @@ def benchmark(args):
             if frame >= 5:
                 rotations.append(elapsed)
             started = time.perf_counter()
-            g.draw(markers=markers, selected=str((frame+1) % 25))
+            g.draw(label=label)
             sdl.SDL_SetRenderTarget(d.renderer, g.cached)
             sdl.SDL_SetRenderTarget(d.renderer, None)
             if frame >= 5:
                 cached.append((time.perf_counter()-started)*1000)
         started = time.perf_counter()
-        g.draw("RU", markers)
+        g.draw("RU", label)
         selection = (time.perf_counter()-started)*1000
         if args.screenshot:
             d.screenshot(args.screenshot)

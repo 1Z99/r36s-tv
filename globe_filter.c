@@ -278,7 +278,7 @@ int tv_globe_borders(const float *src_xyz, int count, uint8_t *dst,
     double lat = latitude * radians, lon = remainder(longitude, 360.0) * radians;
     double slat = sin(lat), clat = cos(lat), slon = sin(lon), clon = cos(lon);
     double rx = 150.0 * zoom * w / 350.0, ry = 150.0 * zoom * h / 350.0;
-    const uint8_t color[4] = {77, 91, 100, 255};
+    const uint8_t color[4] = {64, 196, 104, 255};
     uint32_t shade = load_pixel(color);
     for (int i = 0; i < count; ++i) {
         float input[6];

@@ -56,7 +56,7 @@ class ControllerTests(unittest.TestCase):
         self.ui.action("ok")
         self.assertEqual(self.ui.country, "SY")
         self.assertEqual(self.ui.focus, "list")
-        self.assertTrue(self.ui.markers)
+        self.assertTrue(self.ui.count_label)
 
     def test_video_reuses_only_healthy_full_resolution_player(self):
         self.ui.demo = False
@@ -218,8 +218,8 @@ class ControllerTests(unittest.TestCase):
         for row in self.ui.rows:
             self.assertTrue(any(call.args[0] == row["name"][:15] for call in calls))
         self.assertEqual(len(self.ui.rows), app.VISIBLE_ROWS)
-        self.ui.globe.draw.assert_called_with("", [], self.ui.selected()["uuid"],
-                                             viewport=app.MAP_VIEWPORT, bounds=(0, 84, app.MAP_WIDTH, 354))
+        self.ui.globe.draw.assert_called_with("", label=None,
+                                              viewport=app.MAP_VIEWPORT, bounds=(0, 84, app.MAP_WIDTH, 354))
         self.ui.move_pointer(app.LIST_X+15, app.LIST_Y+app.ROW_HEIGHT*7+10)
         self.assertEqual(self.ui.index, 7)
 
@@ -278,6 +278,15 @@ class ControllerTests(unittest.TestCase):
         self.ui.draw_modal()
         self.assertIn(((self.ui.d.backdrop, (0, 0, 640, 480)), {}), self.ui.d.copy.call_args_list)
         self.assertFalse(any(call.args[:4] == (49, 49, 542, 382) for call in self.ui.d.rect.call_args_list))
+
+    def test_fullscreen_exit_prompt_has_no_outer_dialog_box(self):
+        self.ui.modal = "exit"
+        self.ui.d.measure.side_effect = lambda text, size: (len(text)*7, size)
+        self.ui.draw_modal()
+        self.assertIn(((self.ui.d.backdrop, (0, 0, 640, 480)), {}), self.ui.d.copy.call_args_list)
+        self.assertFalse(any(call.args[:4] == (49, 49, 542, 382) for call in self.ui.d.rect.call_args_list))
+        texts = [call.args[0] for call in self.ui.d.text.call_args_list]
+        self.assertIn("LEAVE 227 TV?", texts)
 
     def test_dpad_adjusts_crt_without_closing_settings(self):
         self.ui.view = "video"
