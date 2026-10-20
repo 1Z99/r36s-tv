@@ -219,7 +219,7 @@ class BackendTests(unittest.TestCase):
         rows = [one, two]
         self.assertEqual(backend.filter_stations(rows, "germany german", country="de", health=health), [one])
         self.assertEqual(backend.filter_stations(rows, "missing"), [])
-        self.assertEqual(backend.filter_stations(rows, tab="Archive", health=health), [two])
+        self.assertEqual(backend.filter_stations(rows, health=health), [one])
         self.assertEqual(backend.filter_stations(rows, tab="Favorites", state=state), [one, removed])
         self.assertEqual(backend.filter_stations(rows, tab="Recent", state=state, health=health), [two, one])
 

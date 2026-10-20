@@ -111,6 +111,10 @@ program and launchers while preserving favorites, history, preferences, 227 AI,
 and the shared 227 system. Close TV before updating. The installer does not kill
 the app, restart EmulationStation, or reboot; reload the menu yourself.
 
+**v1.0.4 cleans up the browse screen.** The Archive tab is removed (three
+centered tabs: World / Favorites / Recent, with station health rechecking in
+Settings), and the square panel behind the Earth turns translucent so the
+scanline backdrop shows through.
 **v1.0.3 restyles the globe.** Crystal-green Earth with mint country borders
 and rim, amber selection coloring, channel-count numerals instead of station
 dots, and a full-screen `LEAVE 227 TV?` exit prompt in the Settings style.
@@ -126,8 +130,8 @@ behavior and afterwards updates itself through the same flow.
 download verification, dependency-plan auditing, artwork migration, rollback,
 and the latest-release update/repair flow with mocked HTTP and APT. Earlier
 installs and updates passed temporary-card and handheld hardware tests; the
-one-file Tools update flow itself is accepted on a handheld by the v1.0.3
-device test.
+one-file Tools update flow itself is accepted on the handheld by the v1.0.4
+smoke test.
 
 Read [INSTALLATION.md](INSTALLATION.md) for offline installation, card selection,
 logs, safe dependency handling, troubleshooting, and advanced CLI use.

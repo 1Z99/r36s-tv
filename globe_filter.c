@@ -120,7 +120,8 @@ int tv_globe_project(const uint8_t *src, int sw, int sh, int src_pitch,
         xs[x] = local < -1.0 || local > 1.0 ? 2.0f : (float)local;
         x_squared[x] = xs[x] * xs[x];
     }
-    const uint8_t background[4] = {9, 10, 12, 255};
+    /* Outside the disk stays see-through so the app scanline backdrop shows. */
+    const uint8_t background[4] = {9, 10, 12, 90};
     uint32_t outside = load_pixel(background);
     for (int y = 0; y < size; ++y) {
         double local_y = (size / 2.0 - y - 0.5) / radius;

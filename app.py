@@ -39,7 +39,7 @@ MAP_WIDTH, MAP_CENTER_X, MAP_CENTER_Y = 414, 207, 263
 MAP_VIEWPORT = (4, 60, 406, 406)
 MAP_RADIUS = 150*406/350
 MENU_Y, MENU_STEP, MENU_ROWS = 110, 35, 9
-TABS = ("World", "Favorites", "Recent", "Archive")
+TABS = ("World", "Favorites", "Recent")
 BUTTONS = {0: "back", 1: "ok", 2: "search", 3: "favorite", 4: "prev", 5: "next",
            6: "minus", 7: "plus", 8: "up", 9: "down", 10: "left", 11: "right",
            12: "select", 13: "menu", 14: "random", 15: "pause", 16: "menu"}
@@ -344,7 +344,7 @@ class App:
     def refilter(self):
         old = self.selected().get("uuid") if self.rows else None
         self.rows = filter_stations(self.stations, self.query, self.country, TABS[self.tab], self.state, self.health)
-        if not self.demo and not self.country and self.tab in (0, 3):
+        if not self.demo and not self.country and self.tab == 0:
             self.rows = []
         self.index = next((i for i, row in enumerate(self.rows) if row["uuid"] == old), 0)
         # Instead of per-channel dots, the selected country shows its live
@@ -504,7 +504,7 @@ class App:
                  "CRT animation: " + ("ON" if s["animated"] else "OFF"),
                  "Earth rotation speed: " + ("OFF" if not s["globe_rotation_speed"] else
                                             "%gx" % s["globe_rotation_speed"]),
-                 "Scan 12 stations for archive", "Refresh selected country", "Stop playback", "Exit TV"]
+                 "Recheck station health", "Refresh selected country", "Stop playback", "Exit TV"]
         return (["Resolution / frame rate"] + items) if self.has_playback() else items
 
     def has_playback(self):
@@ -851,7 +851,7 @@ class App:
                 self.error, self.modal = error, "error"
             else:
                 self.refilter()
-                self.toast("Archive scan complete")
+                self.toast("Station recheck complete")
         changed = False
         for cell, player in self.players.items():
             status = player.poll()
@@ -1013,7 +1013,7 @@ class App:
         elif self.view == "browse":
             if 44 <= y < 79:
                 self.channel_reveals.clear()
-                self.tab = min(3, int(x//160))
+                self.tab = min(2, int(x//213))
                 self.refilter()
             elif x >= LIST_X and LIST_Y <= y < LIST_Y+VISIBLE_ROWS*ROW_HEIGHT:
                 self.play(self.selected())
@@ -1077,11 +1077,11 @@ class App:
         d = self.d
         d.rect(0, 44, 640, 35, PANEL)
         for i, tab in enumerate(TABS):
-            x = 12 + i*157
+            x = 12 + i*213
             if i == self.tab:
-                d.rect(x-4, 47, 149, 28, (14, 54, 29, 255))
-                d.rect(x-4, 73, 149, 2, GREEN)
-            d.text(tab.upper(), x+6, 53, GREEN if i == self.tab else DIM, 13)
+                d.rect(x-4, 47, 205, 28, (14, 54, 29, 255))
+                d.rect(x-4, 73, 205, 2, GREEN)
+            d.text(tab.upper(), x, 53, GREEN if i == self.tab else DIM, 13, 205, align="center")
         self.globe.draw(self.country, label=self.count_label,
                         viewport=MAP_VIEWPORT, bounds=(0, 84, MAP_WIDTH, 354))
         if self.focus == "globe":
@@ -1118,10 +1118,6 @@ class App:
             else:
                 d.text(name, LIST_X+9, y+4, TEXT, 13, 177)
             detail = "%s / %s" % (row.get("countryCode") or "--", row.get("language") or row.get("tags") or "LIVE TV")
-            if self.tab == 3:
-                record = self.health.data.get(row["uuid"], {})
-                stamp = record.get("deadSince")
-                detail = "DARK SINCE " + time.strftime("%d %b", time.localtime(stamp)) if stamp else "UNREACHABLE"
             d.text(detail, LIST_X+9, y+23, DIM, 11, 190)
         if not self.rows:
             loading = "country:"+self.country in self.workers

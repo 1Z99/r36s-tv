@@ -372,7 +372,7 @@ def filter_stations(stations, query="", country="", tab="World", state=None, hea
     for row in source:
         key = row["uuid"]
         dead = health.get(key, {}).get("status") == "dead"
-        if key in seen or (tab == "Archive" and not dead) or (tab == "World" and dead):
+        if key in seen or (tab in ("World", "Archive") and dead):
             continue
         if country and country.casefold() not in (row.get("countryCode", "").casefold(),
                                                   row.get("country", "").casefold()):

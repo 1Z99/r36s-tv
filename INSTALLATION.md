@@ -42,8 +42,8 @@ and put them together in the mounted games
 card's `tools` directory:
 
 - `Install 227 TV.sh` (rename the downloaded `Install.227.TV.sh` if needed)
-- `melkor227-tv-manager-1.0.3.tar.gz`
-- `melkor227-tv-1.0.3-darkosre-arm64.tar.gz`
+- `melkor227-tv-manager-1.0.4.tar.gz`
+- `melkor227-tv-1.0.4-darkosre-arm64.tar.gz`
 
 Then use the handheld:
 

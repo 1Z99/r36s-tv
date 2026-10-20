@@ -114,7 +114,7 @@ class Scaler:
 
         Atlas dimensions: 1..8192; square output: 1..2048. Angles are degrees,
         latitude -90..90, any finite longitude, zoom > 0 and <= 64. Outside the
-        globe is opaque (9, 10, 12, 255). Output remains valid across scale calls.
+        globe is semi-transparent (9, 10, 12, 90) so backdrops show. Output remains valid across scale calls.
         """
         if not self.projection_available:
             if self.available:

@@ -54,7 +54,7 @@ def project_reference(source, sw, sh, size, latitude, longitude, zoom, pitch=Non
     lat, lon = math.radians(latitude), math.radians(math.remainder(longitude, 360))
     slat, clat, slon, clon = math.sin(lat), math.cos(lat), math.sin(lon), math.cos(lon)
     radius = 150*size/350*zoom
-    result = bytearray(bytes((9, 10, 12, 255)) * (size*size))
+    result = bytearray(bytes((9, 10, 12, 90)) * (size*size))
     for y in range(size):
         py = (size/2-y-.5)/radius
         for x in range(size):
@@ -454,7 +454,7 @@ class FilterTests(unittest.TestCase):
             self.assertEqual(bytes(self.scaler.project(poles, 1, 4, 1, lat, 123, .8)), expected)
 
     def test_projection_disk_mask_tiny_zoom_and_limits(self):
-        color, outside = bytes((123, 211, 50, 73)), bytes((9, 10, 12, 255))
+        color, outside = bytes((123, 211, 50, 73)), bytes((9, 10, 12, 90))
         source = (C.c_uint8 * 4).from_buffer_copy(color)
         size, zoom = 21, .8
         output = self.scaler.project(source, 1, 1, size, 23, 56, zoom)

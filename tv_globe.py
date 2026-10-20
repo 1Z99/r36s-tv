@@ -291,6 +291,9 @@ class Globe:
         try:
             for _ in range(2):
                 textures.append(self.d.texture(width, height, target=True))
+            # Background pixels carry alpha; blend them over the app backdrop.
+            for texture in textures:
+                self.d.sdl.SDL_SetTextureBlendMode(texture, 1)
         except BaseException:
             for texture in textures:
                 self.d.sdl.SDL_DestroyTexture(texture)
@@ -633,7 +636,12 @@ class Globe:
                     self._vector_map(size, country, sinlat, coslat, sinlon, coslon, radius)
                     self._smooth_surface(texture, size, index)
                 else:
-                    d.rect(0, 0, size, size, (9, 10, 12, 255))
+                    # Replace leftovers from the previous frame, then paint a
+                    # translucent square so the app scanline backdrop shows.
+                    sdl.SDL_SetRenderDrawBlendMode(d.renderer, 0)
+                    d.rect(0, 0, size, size, (0, 0, 0, 0))
+                    sdl.SDL_SetRenderDrawBlendMode(d.renderer, 1)
+                    d.rect(0, 0, size, size, (9, 10, 12, 90))
                     self._check(sdl.SDL_RenderGeometryRaw(d.renderer, self.atlas_texture,
                         self._xy, 8, C.byref(self._white), 0, self._uv, 8,
                         self._vertex_count, self._indices, self._index_count, 4))
@@ -673,7 +681,7 @@ class Globe:
                     d.copy(old, old_view)
                 finally:
                     sdl.SDL_SetTextureAlphaMod(old, 255)
-                    sdl.SDL_SetTextureBlendMode(old, 0)
+                    sdl.SDL_SetTextureBlendMode(old, 1)
             else:
                 self.fade_from = None
             self._native_outlines(viewport, country, refined, clip, opacity)

@@ -246,7 +246,7 @@ class UpdateTests(unittest.TestCase):
         self.assertFalse(result["latest_checked"])
 
     def test_explicit_source_update_cannot_downgrade_and_repair_cannot_switch_version(self):
-        self.install("1.0.4")
+        self.install("1.0.5")
         before = self.snapshot()
         worker = self.worker(source_dir=ROOT)
         with self.assertRaisesRegex(RuntimeError, "downgrade"):

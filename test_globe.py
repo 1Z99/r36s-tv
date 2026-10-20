@@ -152,7 +152,10 @@ class RenderTests(unittest.TestCase):
             self.assertEqual(project_world.call_count, 2)
             self.assertNotEqual(before, self.pixels())
             outside = (88*640)*4
-            self.assertEqual(self.pixels()[outside:outside+4], bytes((9, 10, 12, 255)))
+            pixel = self.pixels()[outside:outside+4]
+            # Blended square lets the scanline backdrop through; composited alpha stays 255.
+            self.assertEqual(pixel[3], 255)
+            self.assertNotEqual(pixel[:3], bytes((9, 10, 12)))
 
     def test_world_borders_are_visible_below_closeup_threshold_and_while_moving(self):
         west = [[-15, -12], [0, -12], [0, 12], [-15, 12], [-15, -12]]
@@ -337,9 +340,13 @@ class RenderTests(unittest.TestCase):
     def test_native_dateline_poles_and_zoom_clipping(self):
         g = self.globe
         for lat in (-90, -78, 0, 78, 90):
+            # The app paints the backdrop every frame; mirror that so the
+            # translucent square never inherits the previous frame's residue.
+            self.display.rect(0, 0, 640, 480, (3, 4, 5, 255))
             g.lat, g.lon = lat, -180
             g.draw()
             west = self.pixels()
+            self.display.rect(0, 0, 640, 480, (3, 4, 5, 255))
             g.lon = 180
             g.draw()
             east = self.pixels()
