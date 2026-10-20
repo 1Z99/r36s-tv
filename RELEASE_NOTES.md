@@ -1,65 +1,57 @@
-# 227 TV v1.0.2
+# 227 TV v1.0.3
 
-Adjustable idle Earth rotation, smarter idle-spin behavior, and installers that
-can finally update to new releases **without a manual installer swap**.
+A full crystal-green globe restyle, channel-count numbers instead of station
+dots, and a full-screen exit prompt — delivered to v1.0.2 users through the
+Update button.
 
-## New Features
+## Visual Restyle
 
-- **Earth rotation speed** in Settings under Start: Off, 0.5x, 1x, 2x, 4x, 8x.
-  The choice is stored in `state.json` and survives launches. The default 1x
-  keeps the original 2.4 deg/s spin.
-- Refined pause rules for the idle world spin: moving the stick to park the
-  pointer away from the globe no longer stops the rotation. The spin only
-  pauses while the pointer is over the globe, during a manual drag, when using
-  globe zoom, or while rotating with the crosshair focused; it eases back in
-  about two seconds later and after zoom/flight end as before.
+- **Crystal-green Earth**: new ocean `(5,19,12)` and land `(13,62,34)` palette
+  replacing the previous blue/teal look.
+- **Mint-green country borders** `(64,196,104)` and a matching mint rim line
+  around the globe, in both the native globe filter (`globe_filter.c`, bundled
+  prebuilt for arm64) and the Python fallback renderer. The native filter is
+  rebuilt and shipped so the borders are mint regardless of which renderer
+  draws.
+- **Amber selection**: the selected country now renders in amber — fill
+  `(158,120,32)`, bright edge `(242,201,76)` — with an amber trace-gradient
+  while the globe rotates.
+- **Channel counts instead of dots**: the country markers are gone; countries
+  now show a channel-count numeral at their centroid, in the same size-18 font
+  as country names, with no halo, always amber.
+- **Full-screen exit prompt**: the old bordered "LEAVE THE ATLAS?" dialog is
+  replaced by a full-screen screen in the Settings style: header `Exit`, title
+  `LEAVE 227 TV?`, the note "Your favorites and preferences stay saved", and
+  the two choices Keep watching / Exit to EmulationStation. Key handling is
+  unchanged (B still cancels; A on Exit quits).
 
-## Automatic Updates
+## Automatic Updates (unchanged from v1.0.2)
 
-- **Update** now checks the repository's fixed HTTPS endpoint
-  `releases/latest/download/release.json`, validates format, target, version,
-  canonical base URL, filenames, sizes, and SHA-256 boundaries, then installs
-  the newest stable release using the same pinning and rollback guarantees as
-  before. It refuses to downgrade an installed TV.
-- **Repair** is now separate from Update: it restores exactly the installed
-  release, using the new `installed-release.json` record beside the app. On
-  older installs without a record the installer safely recovers the version
-  from the installed code (without executing it) and fetches only that tag;
-  it never guesses "latest" when the installed version cannot be identified.
-- **Uninstall TV** remains usable without any network access. The manager now
-  shows four actions: Install, Update, Repair, Uninstall TV.
-- Launchers still cache a copy of the version pinned by the Tools script for
-  offline Repair/Uninstall when the latest-release check fails.
-- Explicit `TV227_RELEASE_BASE` / `--base` and `--source` installs keep their
-  pinned, offline behavior and report `latest_checked: false`.
+- **Update** checks the fixed endpoint `releases/latest/download/release.json`,
+  validates format, target, version, canonical base URL, filenames, sizes and
+  SHA-256 boundaries, and refuses to downgrade an installed TV.
+- **Repair** restores exactly the installed release from the
+  `installed-release.json` record; **Uninstall TV** remains fully offline.
 
-## Update From v1.0.0 Or v1.0.1
+## Update From v1.0.2
 
-Existing installers remain pinned to their own version. Replace the Tools
-installer **once** with this release's `Install.227.TV.sh` (renamed as before);
-afterwards future releases arrive through the Update button automatically.
-The v1.0.1 thumbnail fix (standalone JPEG instead of SVG artwork in the 227
-menu) is retained and migrated with rollback as before.
-
-Close TV, connect Wi-Fi, open **Tools > Install 227 TV**, choose the card with
-TV, and select **Update**. Reload/restart EmulationStation afterwards if the
-menu artwork was migrated; saved data, 227 AI and the shared 227 system are
-preserved. No separate AI installation or SSH is required. Offline users need
-the installer and both matching v1.0.2 `.tar.gz` assets together in Tools;
-missing OS packages still require internet.
+Nothing special: close TV, connect Wi-Fi, open **Tools > Install 227 TV**,
+choose the card with TV, and select **Update**. Saved data, 227 AI and the
+shared 227 system are preserved. Offline users need the installer and both
+matching v1.0.3 `.tar.gz` assets together in Tools; missing OS packages still
+require internet.
 
 ## Compatibility And Verification
 
 The binary target is unchanged: **Debian 13/trixie arm64 dArkOSRE on R36S**.
 Original Ubuntu-based ArkOS, other distributions and 32-bit firmware remain
-unsupported by the bundled runtime. No playback/firmware upgrade is included.
+unsupported by the bundled runtime.
 
-**365 host tests passed**, including the new release-policy and update-flow
-suites (fixed endpoint scope, schema/filename/hash validation, bounded HTTP,
-downgrade refusal, network-failure behavior, installed-record recovery, legacy
-migration, and GUI navigation) with mocked HTTP and APT. The one-file Tools
-flow for this automatic-update behavior is deliberately awaiting a manual
-handheld acceptance test; earlier install/update/uninstall behavior passed
-temporary-card and handheld hardware tests.
+**366 host tests passed**, including the restyled palette/border/label
+expectations (`test_globe.py`, `test_filter.py`, `test_app.py`) and the
+release-policy and update-flow suites with mocked HTTP and APT. The bundled
+`native/libtvglobe.so` was rebuilt for arm64 from the updated `globe_filter.c`
+on Debian 13 aarch64 hardware, verified as a stripped ELF shared object, and
+finally smoke-checked through temporary-card install, update and uninstall.
 
 Instructions: <https://github.com/1Z99/r36s-tv/blob/main/INSTALLATION.md>.

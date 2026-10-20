@@ -23,7 +23,7 @@ from tv_dependencies import ensure
 from tv_release import TARGET, canonical_base, fetch_release, source_version, stable_version, validate_release
 from tv_system import ART, LEGACY_ART, LAUNCHER, SystemMenu, artwork_owned
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 APP_FILES = ("app.py", "tv_backend.py", "tv_media.py", "tv_quality.py", "tv_style.py",
              "tv_globe.py", "tv_filter.py", "tv_system.py", "tv_dependencies.py",
              "tv_installer.py", "tv_manager.py", "tv_release.py", "globe_filter.c", "build_globe_filter.sh",

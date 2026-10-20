@@ -111,6 +111,9 @@ program and launchers while preserving favorites, history, preferences, 227 AI,
 and the shared 227 system. Close TV before updating. The installer does not kill
 the app, restart EmulationStation, or reboot; reload the menu yourself.
 
+**v1.0.3 restyles the globe.** Crystal-green Earth with mint country borders
+and rim, amber selection coloring, channel-count numerals instead of station
+dots, and a full-screen `LEAVE 227 TV?` exit prompt in the Settings style.
 **v1.0.2 adds the rotation-speed setting and self-updating installers.**
 Installers from v1.0.2 onward automatically find future releases with their
 Update action. One older installer (v1.0.0/v1.0.1) must be replaced once with
@@ -119,12 +122,12 @@ behavior and afterwards updates itself through the same flow.
 
 ## Help
 
-**365 host tests passed**, covering offscreen rendering, local playback fixtures,
+**366 host tests passed**, covering offscreen rendering, local playback fixtures,
 download verification, dependency-plan auditing, artwork migration, rollback,
-and the latest-release update/repair flow with mocked HTTP and APT. The v1.0.0
-and v1.0.1 installs and updates passed temporary-card and handheld hardware
-tests; the v1.0.2 one-file Tools flow still needs device-side acceptance for its
-new automatic-update behavior.
+and the latest-release update/repair flow with mocked HTTP and APT. Earlier
+installs and updates passed temporary-card and handheld hardware tests; the
+one-file Tools update flow itself is accepted on a handheld by the v1.0.3
+device test.
 
 Read [INSTALLATION.md](INSTALLATION.md) for offline installation, card selection,
 logs, safe dependency handling, troubleshooting, and advanced CLI use.
