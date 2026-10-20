@@ -42,8 +42,8 @@ and put them together in the mounted games
 card's `tools` directory:
 
 - `Install 227 TV.sh` (rename the downloaded `Install.227.TV.sh` if needed)
-- `melkor227-tv-manager-1.0.1.tar.gz`
-- `melkor227-tv-1.0.1-darkosre-arm64.tar.gz`
+- `melkor227-tv-manager-1.0.2.tar.gz`
+- `melkor227-tv-1.0.2-darkosre-arm64.tar.gz`
 
 Then use the handheld:
 
@@ -60,9 +60,13 @@ need Debian repositories. Existing working firmware dependencies are reused.
 
 ## Online Downloader
 
-The generated installer is pinned to the matching tagged GitHub release. Normal
-users do not need to configure a host. For an advanced mirror or an offline
-directory, override the base explicitly:
+From v1.0.2, the generated installer checks the repository's fixed HTTPS
+endpoint `releases/latest/download/release.json` at launch, validates its
+format, target, version, filenames, sizes, and SHA-256 values, and uses the
+matching tagged `base_url`. It also downloads a copy of the version pinned by
+the launcher for offline Repair/Uninstall use. Normal users do not need to
+configure a host. For an advanced mirror or a true offline-directory install,
+override the base explicitly, which pins behavior to that directory:
 
 ```sh
 TV227_RELEASE_BASE="file:///path/to/matching-release-files/" \
@@ -77,9 +81,14 @@ trusted source; there is no independent release signature yet.
 
 Open **Tools > Install 227 TV** again:
 
-- **Update / repair** restores the release pinned by this installer. A newer
-  release requires its newly generated bootstrap; it does not silently trust a
-  mutable latest-release manifest.
+- **Update** checks the latest published release over the fixed HTTPS endpoint,
+  verifies the release record and bundle (filename, version, sizes, SHA-256),
+  and refuses to downgrade. When offline, Update stops safely without changing
+  TV; **Repair** stays available.
+- **Repair** restores exactly the installed version, preferring the
+  `installed-release.json` record stored beside the app. Without a record (older
+  v1.0.0/v1.0.1 installs) the installer recovers the version from the installed
+  code before fetching its matching tag; it never guesses "latest" in this case.
 - **Uninstall TV** removes TV's program and launchers, not AI, the shared 227
   registration or themes. Favorites, history, catalog caches and preferences in
   `~/.local/share/melkor227-tv` are deliberately retained.
@@ -92,14 +101,19 @@ Open **Tools > Install 227 TV** again:
 Close TV before updating. The installer does not kill the app, start TV, restart
 EmulationStation, reboot, upgrade firmware or alter Wi-Fi configuration.
 
-### Thumbnail Fix In v1.0.1
+### Automatic Updates From v1.0.2
 
-Download the latest installer and replace the old Tools script, then select
-**Update / repair** on the existing TV card. The v1.0.0 installer remains pinned
-to v1.0.0 and cannot retrieve this fix by itself. v1.0.1 installs the exact same
-standalone JPEG as 227 AI, replacing the SVG wrapper that could appear black
-with a green box in EmulationStation. Reload/restart EmulationStation after the
-update to clear its cached thumbnail. AI files and saved TV data are preserved.
+Installers of v1.0.2 and later update **TV** to the repository's newest stable
+release through their Update action, verified the same strict way as a fresh
+install. If the v1.0.1 release's same-file download already succeeded on this
+device, only the *installer file itself* needs one replacement: download the
+latest **Install 227 TV.sh** and let it copy itself into Tools. Afterwards,
+future versions follow automatically.
+
+The v1.0.1 thumbnail fix remains included; a v1.0.2 installer updating an older
+install migrates the menu artwork from SVG to the standalone JPEG as before,
+with rollback participating as before. Reload/restart EmulationStation after a
+thumbnail migration to clear its cached image.
 
 ## The Shared 227 System
 
@@ -118,7 +132,7 @@ as TV's own file. Unrelated Ports games are not removed. A Tools fallback remain
 
 Older cached 227 AI managers may not preserve other apps' menu entries. Use a
 current AI installer when maintaining AI. If an older manager removes TV's menu
-entry, rerun **Update / repair** in the TV installer. TV does not modify the AI
+entry, rerun **Repair** in the TV installer. TV does not modify the AI
 manager, models, or chats.
 
 ## Dependencies And Safety

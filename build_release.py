@@ -10,6 +10,7 @@ import subprocess
 import tarfile
 
 from tv_installer import APP_FILES, ASSET_FILES, VERSION, digest
+from tv_release import canonical_base
 
 ROOT = Path(__file__).resolve().parent
 
@@ -24,6 +25,7 @@ def archive(path, contents):
 
 
 def build(output, base=""):
+    base = base or canonical_base(VERSION)
     output = Path(output).absolute()
     if not output.parent.is_dir():
         raise ValueError("Release parent must already exist")
@@ -49,6 +51,7 @@ def build(output, base=""):
     manager_assets = ("DejaVuSansMono.ttf", "DejaVuSansMono-Bold.ttf", "FONT-LICENSE", "AI-LICENSE",
                       "logo.rgba", "intro-background.rgba")
     manager = {name: contents[name] for name in manager_names}
+    manager["install.sh"] = contents["install.sh"]
     manager["Melkor 227 TV.sh"] = contents["Melkor 227 TV.sh"]
     manager["assets/melkor227.jpg"] = contents["assets/melkor227.jpg"]
     manager.update({"assets/"+name: contents["assets/"+name] for name in manager_assets})
@@ -57,6 +60,7 @@ def build(output, base=""):
     archive(bootstrap, manager)
     release["manager"] = dict(file=bootstrap.name, sha256=digest(bootstrap), bytes=bootstrap.stat().st_size)
     script = (ROOT / "install227tv.sh").read_text()
+    script = script.replace("# @RELEASE_HELPER@", (ROOT / "tv_release.py").read_text())
     for key, value in (("@MANAGER_FILE@", bootstrap.name), ("@MANAGER_SHA256@", release["manager"]["sha256"]),
                        ("@MANAGER_BYTES@", str(bootstrap.stat().st_size)), ("@RELEASE_BASE@", base)):
         script = script.replace(key, value)

@@ -619,9 +619,11 @@ class InstallerTests(unittest.TestCase):
         unrelated.write_text("leave unrelated ownership alone")
         origin = self.root / "release"
         origin.mkdir()
-        payload = origin / "payload.tar.gz"
+        payload = origin / ("melkor227-tv-"+core.VERSION+"-darkosre-arm64.tar.gz")
         payload.write_bytes(b"verified download, deliberately not a tar archive")
-        release = {"bundle": dict(file=payload.name, bytes=payload.stat().st_size, sha256=core.digest(payload))}
+        release = dict(format=1, version=core.VERSION, target=core.TARGET, base_url=origin.as_uri(),
+                       bundle=dict(file=payload.name, bytes=payload.stat().st_size, sha256=core.digest(payload),
+                                   unpacked_bytes=1024))
 
         for failure in (False, True):
             owned = []
@@ -721,10 +723,14 @@ class InstallerTests(unittest.TestCase):
         self.assertIn(release["manager"]["sha256"], script)
         self.assertNotIn("@MANAGER_SHA256@", script)
         with tarfile.open(output / release["manager"]["file"]) as bundle:
+            self.assertIn("tv_release.py", bundle.getnames())
+            self.assertIn("install.sh", bundle.getnames())
             self.assertIn("Melkor 227 TV.sh", bundle.getnames())
             self.assertIn("assets/melkor227.jpg", bundle.getnames())
             self.assertNotIn("assets/melkor227.svg", bundle.getnames())
             self.assertIn("assets/intro-background.rgba", bundle.getnames())
+        self.assertNotIn("# @RELEASE_HELPER@", script)
+        self.assertIn("https://github.com/1Z99/r36s-tv", script)
         archive = output / release["bundle"]["file"]
         self.assertEqual(core.digest(archive), release["bundle"]["sha256"])
         core.extract_bundle(archive, self.root / "unpacked", release["bundle"]["unpacked_bytes"])

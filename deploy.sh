@@ -12,7 +12,7 @@ fi
 OPTIONS=(-i "$KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15)
 REMOTE="$USER_NAME@$HOST"
 FILES=(app.py tv_backend.py tv_media.py tv_quality.py tv_style.py tv_globe.py 'Melkor 227 TV.sh' install.sh LICENSE
-       tv_system.py tv_dependencies.py tv_installer.py tv_manager.py
+       tv_system.py tv_dependencies.py tv_installer.py tv_manager.py tv_release.py
        README.md INSTALLATION.md PUBLISHING.md DEVELOPMENT.md CREDITS.md
        tv_filter.py globe_filter.c build_globe_filter.sh native/libtvglobe.so
        assets/globe.json assets/countries.json assets/NOTICE.md

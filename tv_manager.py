@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""227 TV controller-driven install, update/repair and uninstall manager."""
+"""227 TV controller-driven install, update, repair and uninstall manager."""
 
 import argparse
 import ctypes as C
@@ -14,7 +14,7 @@ import time
 
 from tv_installer import Cancelled, Installer, VERSION, compatible, discover_cards
 
-ACTIONS = ("Install", "Update / repair", "Uninstall TV")
+ACTIONS = ("Install", "Update", "Repair", "Uninstall TV")
 
 
 class Manager:
@@ -24,7 +24,7 @@ class Manager:
         self.card, self.focus = None, 0
         self.state, self.yes, self.running = "home", False, True
         self.detail_scroll = 0
-        self.progress, self.result, self.error = {}, {}, ""
+        self.progress, self.result, self.error = {}, {}, options.get("discovery_error", "")
         self.events, self.cancel = queue.Queue(), threading.Event()
         self.thread = None
 
@@ -36,7 +36,7 @@ class Manager:
         def work():
             try:
                 result = self.worker(prefix, emit=self.events.put, cancel=self.cancel, **self.options).run(
-                    ("install", "update", "uninstall")[self.focus-1])
+                    ("install", "update", "repair", "uninstall")[self.focus-1])
                 self.events.put(dict(phase="result", state="success", result=result))
             except Cancelled as exc:
                 self.events.put(dict(phase="result", state="cancelled", error=str(exc)))
@@ -63,7 +63,7 @@ class Manager:
             if action == "back":
                 self.running = False
             elif action in ("up", "down"):
-                self.focus = (self.focus+(1 if action == "down" else -1)) % 4
+                self.focus = (self.focus+(1 if action == "down" else -1)) % (len(ACTIONS)+1)
             elif action in ("left", "right") or (action == "ok" and self.focus == 0):
                 current = -1 if self.card is None else self.card
                 self.card = (current+(1 if action != "left" else -1)) % len(self.cards)
@@ -123,16 +123,17 @@ def draw(display, manager):
         d.text("227 TV", 20, 76, GREEN, 22, 600, align="center")
         d.text("Install beside 227 AI, not in Ports", 20, 108, DIM, 13, 600, align="center")
         for i, label in enumerate(["Destination card"]+list(ACTIONS)):
-            y = 150+i*55
-            d.rect(30, y, 580, 46, (14, 50, 29, 255) if m.focus == i else PANEL)
+            y = 140+i*48
+            d.rect(30, y, 580, 42, (14, 50, 29, 255) if m.focus == i else PANEL)
             if m.focus == i:
-                d.rect(30, y, 3, 46, GREEN)
+                d.rect(30, y, 3, 42, GREEN)
             d.text(label, 48, y+13, TEXT, 15)
             if i == 0:
                 card = m.cards[m.card] if m.card is not None else None
                 text = "SELECT SD1 / SD2" if card is None else card["name"]+"  "+card["path"]
                 d.text(text, 310, y+13, GREEN if card and card["available"] else DIM, 13, 280, align="right")
-        d.text(m.error or "Favorites, history and 227 AI are preserved.", 20, 390, RED if m.error else DIM,
+        d.text("Latest check failed. Repair / Uninstall available." if m.error and m.options.get("discovery_error") else
+               m.error or "Favorites, history and 227 AI are preserved.", 20, 404, RED if m.error else DIM,
                13, 600, align="center")
     elif m.state in ("confirm", "cancel_confirm"):
         cancelling = m.state == "cancel_confirm"
@@ -165,7 +166,8 @@ def draw(display, manager):
     else:
         success = m.state == "success"
         d.text("COMPLETE" if success else m.state.upper(), 20, 85, GREEN if success else RED, 22, 600, align="center")
-        message = ("Open 227 > 227 TV after reloading the ES menu." if success and m.result.get("outcome") != "uninstalled" else
+        message = ((m.result.get("outcome", "complete")+" TV "+m.result.get("version", "")+
+                    ". Open 227 > 227 TV after reloading the ES menu.") if success and m.result.get("outcome") != "uninstalled" else
                    "TV removed; 227 AI and your saved TV data were kept." if success else m.error)
         import textwrap
         lines = textwrap.wrap(message, 66)
@@ -181,11 +183,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cli", action="store_true")
     parser.add_argument("--roms", type=Path)
-    parser.add_argument("--action", choices=("install", "update", "uninstall"), default="install")
+    parser.add_argument("--action", choices=("install", "update", "repair", "uninstall"), default="install")
     parser.add_argument("--yes", action="store_true")
     parser.add_argument("--dry-run", action="store_true", help="Read-only CLI destination/system validation")
     parser.add_argument("--source", type=Path)
     parser.add_argument("--base", default=os.environ.get("TV227_RELEASE_BASE", ""))
+    parser.add_argument("--latest", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--discovery-error", default="", help=argparse.SUPPRESS)
     parser.add_argument("--release", type=Path, default=Path(__file__).parent / "release.json")
     parser.add_argument("--es-cfg", type=Path, default=Path("/etc/emulationstation/es_systems.cfg"))
     parser.add_argument("--themes", type=Path)
@@ -194,7 +198,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     release = json.loads(args.release.read_text()) if args.release.exists() else None
     options = dict(source_dir=args.source, base=args.base, release=release,
-                   es_cfg=args.es_cfg, themes=args.themes, development=args.desktop)
+                   es_cfg=args.es_cfg, themes=args.themes, development=args.desktop,
+                   pinned=bool(args.base) and not args.latest, discovery_error=args.discovery_error)
+    if args.latest:
+        # The bootstrap's selected download directory is not a user pin.
+        options["base"] = None
     if args.cli:
         if not args.roms or (not args.yes and not args.dry_run):
             parser.error("CLI changes require --roms PATH and --yes")

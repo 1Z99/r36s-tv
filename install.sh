@@ -7,8 +7,14 @@ python3 -B -c 'import sys; sys.exit(sys.version_info < (3, 10))' || {
     printf '%s\n' '227 TV installation requires Python 3.10 or newer.' >&2; exit 1;
 }
 # The loader reads this at process startup, before ctypes loads libmpv by soname.
-if [ -d "$SOURCE/runtime/lib" ]; then
-    export LD_LIBRARY_PATH="$SOURCE/runtime/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+RUNTIME_SOURCE=$SOURCE
+PAYLOAD_NEXT=0
+for ARG in "$@"; do
+    if [ "$PAYLOAD_NEXT" = 1 ]; then RUNTIME_SOURCE=$ARG; PAYLOAD_NEXT=0; fi
+    if [ "$ARG" = --payload ]; then PAYLOAD_NEXT=1; fi
+done
+if [ -d "$RUNTIME_SOURCE/runtime/lib" ]; then
+    export LD_LIBRARY_PATH="$RUNTIME_SOURCE/runtime/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
 exec python3 - "$SOURCE" "$@" <<'PY'
 import argparse
@@ -24,6 +30,7 @@ import sys
 import tempfile
 
 source = Path(sys.argv[1])
+sys.path.insert(0, str(source))
 parser = argparse.ArgumentParser(description="Install Melkor 227 TV without changing firmware")
 parser.add_argument("--prefix", type=Path, default=Path("/roms"),
                     help="existing card root (default: /roms)")
@@ -34,7 +41,11 @@ parser.add_argument("--list-runtime", action="store_true",
 parser.add_argument("--es-cfg", type=Path, default=Path("/etc/emulationstation/es_systems.cfg"))
 parser.add_argument("--themes", type=Path, help="Optional ES themes root; existing 227 themes are kept")
 parser.add_argument("--app-lock-held", action="store_true", help=argparse.SUPPRESS)
+parser.add_argument("--payload", type=Path, help=argparse.SUPPRESS)
+parser.add_argument("--release-record", type=Path, help=argparse.SUPPRESS)
 args = parser.parse_args(sys.argv[2:])
+if args.payload:
+    source = args.payload
 
 
 def runtime_files():
@@ -157,7 +168,9 @@ try:
              "tv_system.py", "tv_dependencies.py", "tv_installer.py", "tv_manager.py",
               "tv_filter.py", "globe_filter.c", "build_globe_filter.sh", "native/libtvglobe.so",
              "Melkor 227 TV.sh", "install.sh", "LICENSE", "README.md", "INSTALLATION.md", "PUBLISHING.md",
-             "DEVELOPMENT.md", "CREDITS.md"]
+              "DEVELOPMENT.md", "CREDITS.md"]
+    if (source / "tv_release.py").is_file():
+        files.append("tv_release.py")
     assets = ["globe.json", "countries.json", "NOTICE.md", "DejaVuSansMono.ttf",
               "FONT-LICENSE", "melkor227.jpg", "globe-atlas.z", "intro-frames.zip",
               "intro-background.rgba", "logo.rgba", "DejaVuSansMono-Bold.ttf", "AI-LICENSE"]
@@ -195,6 +208,15 @@ try:
             target = safe_path(staged / relative)
             shutil.copyfile(source / relative, target)
             target.chmod(0o755 if relative.endswith(".sh") else 0o644)
+        record = safe_path(staged / "installed-release.json")
+        if args.release_record:
+            from tv_release import source_version, validate_release
+            release = json.loads(args.release_record.read_text())
+            validate_release(release, source_version(source / "tv_installer.py"), manager=False, canonical=False)
+            record.write_text(json.dumps(release, sort_keys=True)+"\n")
+        else:
+            # A direct source install must not keep a previous release's identity.
+            record.unlink(missing_ok=True)
         prune_legacy_art(staged, Path("assets") / LEGACY_ART.name, menu_directory=app)
         if (tools / "images").exists():
             (stage / "previous-tools/images").mkdir(parents=True)

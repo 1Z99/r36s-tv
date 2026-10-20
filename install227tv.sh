@@ -4,9 +4,9 @@ set -eu
 if [ "${1:-}" = --help ] || [ "${1:-}" = -h ]; then
     printf '%s\n' '227 TV downloader and graphical installer' \
       'Put the generated Install 227 TV.sh in the games card tools directory.' \
-      'Open Tools > Install 227 TV, choose SD1/SD2, then Install or Update / repair.' \
+      'Open Tools > Install 227 TV, choose SD1/SD2, then Install, Update, Repair or Uninstall.' \
       'TV is registered under 227 beside AI, not Ports.' \
-      'Advanced: --cli --roms /roms --action install|update|uninstall --yes' \
+      'Advanced: --cli --roms /roms --action install|update|repair|uninstall --yes' \
       'Local source: --source PATH. Hosting override: TV227_RELEASE_BASE=https://.../'
     exit 0
 fi
@@ -68,6 +68,9 @@ command -v python3 >/dev/null 2>&1 || MISSING=python3
 command -v curl >/dev/null 2>&1 || MISSING="${MISSING:+$MISSING }curl"
 [ -r /etc/ssl/certs/ca-certificates.crt ] || MISSING="${MISSING:+$MISSING }ca-certificates"
 if [ -n "$MISSING" ]; then
+    for ARG in "$@"; do
+        [ "$ARG" != --dry-run ] || { printf '%s\n' "Dry run needs existing bootstrap tools: $MISSING; no dependencies installed." >&2; exit 1; }
+    done
     [ "$(uname -m)" = aarch64 ] || { printf '%s\n' 'Bootstrap requires Debian 13 arm64.' >&2; exit 1; }
     . /etc/os-release
     [ "$ID" = debian ] && [ "$VERSION_ID" = 13 ] || { printf '%s\n' 'Use matching Debian 13 dArkOSRE firmware.' >&2; exit 1; }
@@ -110,12 +113,15 @@ if "--source" in arguments:
         sys.exit("Local source is missing tv_manager.py")
     os.execv(sys.executable, [sys.executable, "-B", str(source / "tv_manager.py"), *arguments])
 
+# @RELEASE_HELPER@
+
 filename = "@MANAGER_FILE@"
 expected = "@MANAGER_SHA256@"
 default_base = "@RELEASE_BASE@"
 if expected.startswith("@"):
     sys.exit("This is an unpublished source template. Run build_release.py and use its generated Install 227 TV.sh, or use --source PATH.")
 size = int("@MANAGER_BYTES@")
+builtin = (filename, expected, size)
 base = os.environ.get("TV227_RELEASE_BASE", "")
 if "--base" in arguments:
     index = arguments.index("--base")
@@ -124,8 +130,7 @@ if "--base" in arguments:
     base = arguments[index+1]
 if not base and (self.parent / filename).is_file():
     base = self.parent.as_uri()
-if not base and not default_base.startswith("@"):
-    base = default_base
+pinned = bool(base)
 
 mounts = {line.split()[1]: line.split()[3].split(",") for line in Path("/proc/mounts").read_text().splitlines() if len(line.split()) >= 4}
 own = next((card for card in ("/roms", "/roms2") if str(self).startswith(card+"/tools/")), None)
@@ -140,13 +145,6 @@ tools.mkdir(exist_ok=True)
 shortcut = tools / "Install 227 TV.sh"
 if shortcut.is_symlink() or (shortcut.exists() and "227 TV downloader" not in shortcut.read_text(errors="replace")):
     sys.exit("Refusing unrelated file at Install 227 TV.sh")
-if self.resolve() != shortcut.resolve():
-    temporary = tools / ".Install-227-TV.new"
-    if temporary.is_symlink():
-        sys.exit("Refusing redirected installer shortcut")
-    temporary.write_bytes(self.read_bytes())
-    temporary.chmod(0o755)
-    os.replace(temporary, shortcut)
 lock = os.open(tools / ".227-tv-manager.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
 try:
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -157,17 +155,9 @@ cache = tools / ".227-tv-downloads"
 if cache.is_symlink():
     sys.exit("Refusing redirected download cache")
 cache.mkdir(exist_ok=True)
-archive = cache / filename
 remembered = manager / ".release-base"
 if remembered.is_symlink():
     sys.exit("Refusing redirected release configuration")
-if not base and remembered.is_file() and not remembered.is_symlink():
-    base = remembered.read_text().strip()
-if not base and archive.is_file():
-    base = cache.as_uri()
-if urlsplit(base).scheme not in ("https", "file"):
-    sys.exit("No public release is configured. Keep both tar.gz files beside this script for offline installation, or set TV227_RELEASE_BASE to your HTTPS release directory.")
-
 def sha(path):
     h = hashlib.sha256()
     with path.open("rb") as stream:
@@ -175,27 +165,55 @@ def sha(path):
             h.update(block)
     return h.hexdigest()
 
-if archive.is_symlink():
-    sys.exit("Refusing redirected download")
-if not archive.is_file() or archive.stat().st_size != size or sha(archive) != expected:
-    part = archive.with_suffix(archive.suffix+".part")
-    if part.is_symlink():
-        sys.exit("Refusing redirected partial download")
-    url = urljoin(base.rstrip("/")+"/", filename)
-    if urlsplit(base).scheme == "file":
-        from urllib.request import url2pathname
-        origin = Path(url2pathname(urlsplit(url).path))
-        if origin.resolve() == part.resolve():
-            sys.exit("Download source and temporary destination overlap")
-        shutil.copyfile(origin, part)
-    else:
-        subprocess.run(["curl", "--fail", "--location", "--proto", "=https", "--proto-redir", "=https",
-                        "--connect-timeout", "15", "--speed-limit", "1024", "--speed-time", "30",
-                        "--max-time", "300", "--max-filesize", str(size), "--output", str(part), url], check=True)
-    if part.stat().st_size != size or sha(part) != expected:
-        part.unlink(missing_ok=True)
-        sys.exit("Installer SHA-256 verification failed; no installed app was changed")
-    os.replace(part, archive)
+selected, discovery_error = None, ""
+if not pinned:
+    try:
+        selected = fetch_release()
+    except (OSError, subprocess.SubprocessError) as exc:
+        discovery_error = "Latest release check failed; using verified pinned cache for Repair / Uninstall. " + str(exc)
+        print(discovery_error, file=sys.stderr)
+        fallback = cache / filename
+        if (fallback.is_symlink() or not fallback.is_file() or fallback.stat().st_size != size or sha(fallback) != expected):
+            sys.exit("Latest release unavailable and no verified built-in manager is cached; no manager was replaced")
+        base = default_base if not default_base.startswith("@") else ""
+        if not base and remembered.is_file():
+            base = remembered.read_text().strip()
+        base = base or cache.as_uri()
+    if selected:
+        filename, expected, size = (selected["manager"][key] for key in ("file", "sha256", "bytes"))
+        base = selected["base_url"]
+if urlsplit(base).scheme not in ("https", "file"):
+    sys.exit("Release downloads require HTTPS or an explicit file:// offline bundle")
+def manager_archive(filename, expected, size, base):
+    archive = cache / filename
+    if archive.is_symlink():
+        sys.exit("Refusing redirected download")
+    if not archive.is_file() or archive.stat().st_size != size or sha(archive) != expected:
+        part = archive.with_suffix(archive.suffix+".part")
+        if part.is_symlink():
+            sys.exit("Refusing redirected partial download")
+        url = urljoin(base.rstrip("/")+"/", filename)
+        if urlsplit(base).scheme == "file":
+            from urllib.request import url2pathname
+            origin = Path(url2pathname(urlsplit(url).path))
+            if origin.resolve() == part.resolve():
+                sys.exit("Download source and temporary destination overlap")
+            shutil.copyfile(origin, part)
+        else:
+            subprocess.run(["curl", "--fail", "--location", "--proto", "=https", "--proto-redir", "=https",
+                            "--connect-timeout", "15", "--speed-limit", "1024", "--speed-time", "30",
+                            "--max-time", "300", "--max-filesize", str(size), "--output", str(part), url], check=True)
+        if part.stat().st_size != size or sha(part) != expected:
+            part.unlink(missing_ok=True)
+            sys.exit("Installer SHA-256 verification failed; no installed app was changed")
+        os.replace(part, archive)
+    return archive
+
+archive = manager_archive(filename, expected, size, base)
+if selected and filename != builtin[0]:
+    # Keep a manager attested by immutable launcher pins for future offline use.
+    builtin_version = builtin[0].removeprefix("melkor227-tv-manager-").removesuffix(".tar.gz")
+    manager_archive(*builtin, canonical_base(builtin_version))
 
 # A marker cannot attest to mutable extracted code. Restore only pinned files on
 # every launch, retaining downloads but never stale modules or bytecode.
@@ -204,26 +222,47 @@ with tempfile.TemporaryDirectory(prefix=".227-tv-bootstrap-", dir=tools) as fold
     stage.mkdir()
     with tarfile.open(archive, "r:gz") as bundle:
         seen, total = set(), 0
-        for member in bundle.getmembers():
+        members = bundle.getmembers()
+        if len(members) > 4096:
+            sys.exit("Too many installer archive entries")
+        for member in members:
             path = PurePosixPath(member.name)
             total += member.size
             if (not member.isfile() or path.is_absolute() or ".." in path.parts or "\\" in member.name
-                    or str(path) != member.name or member.name in seen or total > 16*1024*1024):
+                    or str(path) != member.name or member.name in seen or member.size < 0 or total > 16*1024*1024):
                 sys.exit("Unsafe installer archive entry")
             seen.add(member.name)
             target = stage / member.name
             target.parent.mkdir(parents=True, exist_ok=True)
             with bundle.extractfile(member) as src, target.open("xb") as out:
                 shutil.copyfileobj(src, out)
-    for name in ("tv_manager.py", "tv_installer.py", "tv_dependencies.py", "tv_system.py", "release.json"):
+    for name in ("tv_manager.py", "tv_installer.py", "tv_dependencies.py", "tv_system.py", "tv_release.py", "install.sh", "release.json"):
         if not (stage / name).is_file():
             sys.exit("Installer bundle is incomplete: "+name)
     for path in stage.glob("*.py"):
         compile(path.read_bytes(), str(path), "exec")
+    embedded = json.loads((stage / "release.json").read_text())
+    version = filename.removeprefix("melkor227-tv-manager-").removesuffix(".tar.gz")
+    validate_release(embedded, version, manager=False, canonical=selected is not None)
+    if filename != "melkor227-tv-manager-" + version + ".tar.gz":
+        sys.exit("Installer archive filename/version mismatch")
+    if selected and any(embedded.get(key) != selected[key] for key in ("format", "version", "target", "bundle")):
+        sys.exit("Installer bundle metadata does not match selected release")
+    if source_version(stage / "tv_installer.py") != version:
+        sys.exit("Installer code version does not match selected release")
+    if selected:
+        (stage / "release.json").write_text(json.dumps(selected, sort_keys=True)+"\n")
     if (manager / "cache").is_symlink():
         sys.exit("Refusing redirected installer cache")
     if (manager / "cache").exists():
         shutil.copytree(manager / "cache", stage / "cache", symlinks=True)
+    if self.resolve() != shortcut.resolve():
+        temporary = tools / ".Install-227-TV.new"
+        if temporary.is_symlink():
+            sys.exit("Refusing redirected installer shortcut")
+        temporary.write_bytes(self.read_bytes())
+        temporary.chmod(0o755)
+        os.replace(temporary, shortcut)
     old = Path(folder) / "old"
     if manager.exists():
         os.replace(manager, old)
@@ -249,7 +288,8 @@ if urlsplit(base).scheme == "file" and "--dry-run" not in arguments:
         base = cache.as_uri()
 remembered.write_text(base+"\n")
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
-os.execv(sys.executable, [sys.executable, "-B", str(manager / "tv_manager.py"), "--base", base, *arguments])
+mode = [] if pinned else ["--latest", "--discovery-error", discovery_error]
+os.execv(sys.executable, [sys.executable, "-B", str(manager / "tv_manager.py"), "--base", base, *mode, *arguments])
 PY
 }
 

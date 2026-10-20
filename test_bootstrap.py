@@ -14,6 +14,7 @@ import unittest
 from unittest.mock import patch
 
 import tv_dependencies as deps
+import tv_release
 
 
 SOURCE = Path(__file__).resolve().parent
@@ -86,7 +87,7 @@ class ShellAuditTests(unittest.TestCase):
             with self.subTest(state=state, code=code):
                 self.assertNotEqual(self.audit(plan("curl"), state, DPKG_EXIT=code).returncode, 0)
 
-    def workflow(self, verified=None, concurrent=False):
+    def workflow(self, verified=None, concurrent=False, arguments=()):
         # Run the real shell setup, stopping before Python. Only the firmware
         # identity file is redirected; all APT/dpkg commands come from mock PATH.
         release = self.root / "os-release"
@@ -111,11 +112,11 @@ class ShellAuditTests(unittest.TestCase):
         override = ('command() { if [ "$1" = -v ] && [ "$2" = curl ]; then return 1; fi; '
                     '(unset -f command; command "$@"); }\n')
         log = self.root / "apt.jsonl"
-        result = subprocess.run(["sh", "-c", override + shell], text=True, capture_output=True, timeout=10,
+        result = subprocess.run(["sh", "-c", override + shell, "bootstrap", *arguments], text=True, capture_output=True, timeout=10,
                                 env=self.env | {"APT_LOG": str(log), "QUERY_COUNT": str(self.root / "queries"),
                                                 "PLAN": plan("curl"), "VERIFY": verified or plan("curl"),
                                                 "CONCURRENT": str(int(concurrent))})
-        return result, [json.loads(line) for line in log.read_text().splitlines()]
+        return result, [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
 
     def test_shell_workflow_installs_only_verified_pins(self):
         result, commands = self.workflow()
@@ -139,6 +140,12 @@ class ShellAuditTests(unittest.TestCase):
         self.assertEqual(len(commands), 2)
         self.assertIn("Dependency plan changed", result.stderr)
 
+    def test_dry_run_never_bootstraps_missing_dependencies(self):
+        result, commands = self.workflow(arguments=("--dry-run",))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no dependencies installed", result.stderr)
+        self.assertEqual(commands, [])
+
 
 class ManagerCacheTests(unittest.TestCase):
     def setUp(self):
@@ -150,10 +157,15 @@ class ManagerCacheTests(unittest.TestCase):
         self.manager.mkdir(parents=True)
         self.release = self.root / "release"
         self.release.mkdir()
-        self.archive = self.release / "manager.tar.gz"
+        self.archive = self.release / "melkor227-tv-manager-1.0.2.tar.gz"
         self.files = {name: b"# verified manager fixture\n" for name in
-                      ("tv_manager.py", "tv_installer.py", "tv_dependencies.py", "tv_system.py")}
-        self.files["release.json"] = b'{"bundle": {"file": "payload.tar.gz"}}'
+                      ("tv_manager.py", "tv_installer.py", "tv_dependencies.py", "tv_system.py", "tv_release.py", "install.sh")}
+        self.files["tv_installer.py"] = b'VERSION = "1.0.2"\n'
+        self.metadata = dict(format=1, version="1.0.2", target=tv_release.TARGET,
+                             base_url=tv_release.canonical_base("1.0.2"),
+                             bundle=dict(file="melkor227-tv-1.0.2-darkosre-arm64.tar.gz", bytes=15,
+                                         sha256="0"*64, unpacked_bytes=1024))
+        self.files["release.json"] = json.dumps(self.metadata).encode()
         self.bundle(self.files)
         self.script = self.root / "Install 227 TV.sh"
         self.script.write_text(BOOTSTRAP)
@@ -165,8 +177,9 @@ class ManagerCacheTests(unittest.TestCase):
                 member.size = len(content)
                 bundle.addfile(member, io.BytesIO(content))
 
-    def launch(self, base=True, default="@RELEASE_BASE@", environment=None, dry_run=True):
+    def launch(self, base=True, default="@RELEASE_BASE@", environment=None, dry_run=True, http=None):
         generated = BOOTSTRAP.replace("@MANAGER_FILE@", self.archive.name)
+        generated = generated.replace("# @RELEASE_HELPER@", (SOURCE / "tv_release.py").read_text())
         generated = generated.replace("@MANAGER_SHA256@", hashlib.sha256(self.archive.read_bytes()).hexdigest())
         generated = generated.replace("@MANAGER_BYTES@", str(self.archive.stat().st_size))
         generated = generated.replace("@RELEASE_BASE@", default)
@@ -191,7 +204,7 @@ class ManagerCacheTests(unittest.TestCase):
         with patch.object(sys, "argv", arguments), patch.dict(os.environ, environment or {}, clear=True), \
                 patch("pathlib.Path", side_effect=card_path), patch.object(Path, "read_text", mounts), \
                 patch("os.access", return_value=True), patch("os.execv") as execute, \
-                patch("subprocess.run", side_effect=AssertionError("Unexpected network request")):
+                 patch("subprocess.run", side_effect=http or subprocess.CalledProcessError(7, "curl")):
             try:
                 exec(compile(code, "install227tv.sh:python", "exec"), namespace)
             finally:
@@ -201,7 +214,7 @@ class ManagerCacheTests(unittest.TestCase):
 
     def test_generated_https_default_yields_to_adjacent_verified_offline_release(self):
         shutil.copyfile(self.archive, self.script.parent / self.archive.name)
-        payload = self.script.parent / "payload.tar.gz"
+        payload = self.script.parent / self.metadata["bundle"]["file"]
         payload.write_bytes(b"offline payload")
         execute = self.launch(base=False, default="https://example.invalid/releases/v1/", dry_run=False)
         cache = self.card / "tools/.227-tv-downloads"
@@ -258,17 +271,102 @@ class ManagerCacheTests(unittest.TestCase):
         self.launch()
         self.archive.unlink()
         # Preserve the original pins while making the release source unavailable.
-        self.archive = self.card / "tools/.227-tv-downloads/manager.tar.gz"
+        self.archive = self.card / "tools/.227-tv-downloads" / self.archive.name
         execute = self.launch(base=False)
         self.assertIn(self.release.as_uri(), execute.call_args.args[1])
 
     def test_corrupted_cached_archive_is_reverified_and_replaced(self):
         self.launch()
-        cached = self.card / "tools/.227-tv-downloads/manager.tar.gz"
+        cached = self.card / "tools/.227-tv-downloads" / self.archive.name
         original = cached.read_bytes()
         cached.write_bytes(b"x" * len(original))
         self.launch()
         self.assertEqual(cached.read_bytes(), original)
+
+    def latest_http(self, version="1.0.3", corrupt=False, mismatch=False):
+        info = dict(self.metadata, version=version, base_url=tv_release.canonical_base(version))
+        info["bundle"] = dict(info["bundle"], file="melkor227-tv-"+version+"-darkosre-arm64.tar.gz")
+        files = dict(self.files)
+        files["tv_installer.py"] = ('VERSION = "'+version+'"\n').encode()
+        embedded = dict(info, version="1.0.2") if mismatch else info
+        files["release.json"] = json.dumps(embedded).encode()
+        latest = self.release / ("melkor227-tv-manager-"+version+".tar.gz")
+        pinned = self.archive
+        self.archive = latest
+        self.bundle(files)
+        self.archive = pinned
+        info["manager"] = dict(file=latest.name, bytes=latest.stat().st_size,
+                               sha256=hashlib.sha256(latest.read_bytes()).hexdigest())
+        calls = []
+
+        def http(command, **options):
+            calls.append(command)
+            if command[-1] == tv_release.LATEST_RELEASE:
+                options["stdout"].write(b"{corrupt" if corrupt else json.dumps(info).encode())
+            else:
+                origin = latest if command[-1] == info["base_url"]+"/"+latest.name else pinned
+                if origin == pinned:
+                    self.assertEqual(command[-1], tv_release.canonical_base("1.0.2")+"/"+pinned.name)
+                shutil.copyfile(origin, command[command.index("--output")+1])
+            return subprocess.CompletedProcess(command, 0)
+        return http, calls
+
+    def test_old_stable_launcher_follows_later_latest_metadata_on_every_launch(self):
+        self.launch()
+        for version in ("1.0.3", "1.0.4"):
+            with self.subTest(version=version):
+                http, calls = self.latest_http(version)
+                execute = self.launch(base=False, default=tv_release.canonical_base("1.0.2"), http=http)
+                self.assertEqual((self.manager/"tv_installer.py").read_text(), 'VERSION = "'+version+'"\n')
+                self.assertIn("--latest", execute.call_args.args[1])
+                self.assertEqual(calls[0][-1], tv_release.LATEST_RELEASE)
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(json.loads((self.manager/"release.json").read_text())["version"], version)
+
+    def test_corrupt_latest_metadata_or_manager_manifest_never_replaces_code(self):
+        self.launch()
+        original = (self.manager/"tv_installer.py").read_bytes()
+        for corrupt, mismatch in ((True, False), (False, True)):
+            with self.subTest(corrupt=corrupt, mismatch=mismatch):
+                http, _ = self.latest_http(corrupt=corrupt, mismatch=mismatch)
+                with self.assertRaises((ValueError, SystemExit)):
+                    self.launch(base=False, http=http)
+                self.assertEqual((self.manager/"tv_installer.py").read_bytes(), original)
+
+    def test_first_launch_of_old_bootstrap_caches_builtin_manager_for_later_offline_use(self):
+        http, calls = self.latest_http()
+        self.launch(base=False, http=http)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual((self.manager/"tv_installer.py").read_text(), 'VERSION = "1.0.3"\n')
+        execute = self.launch(base=False)
+        self.assertIn("--discovery-error", execute.call_args.args[1])
+        self.assertEqual((self.manager/"tv_installer.py").read_text(), 'VERSION = "1.0.2"\n')
+
+    def test_corrupted_latest_manager_archive_never_replaces_existing_manager(self):
+        self.launch()
+        original = (self.manager/"tv_installer.py").read_bytes()
+        http, _ = self.latest_http()
+        def corrupt(command, **options):
+            result = http(command, **options)
+            if "--output" in command:
+                Path(command[command.index("--output")+1]).write_bytes(b"corrupted archive")
+            return result
+        with self.assertRaisesRegex(SystemExit, "SHA-256 verification failed"):
+            self.launch(base=False, http=corrupt)
+        self.assertEqual((self.manager/"tv_installer.py").read_bytes(), original)
+
+    def test_offline_fallback_reports_failed_check_and_uses_only_verified_builtin_cache(self):
+        self.launch()
+        execute = self.launch(base=False)
+        arguments = execute.call_args.args[1]
+        self.assertIn("--latest", arguments)
+        self.assertIn("Latest release check failed", arguments[arguments.index("--discovery-error")+1])
+        cached = self.card / "tools/.227-tv-downloads" / self.archive.name
+        cached.write_bytes(b"corrupt")
+        original = (self.manager/"tv_installer.py").read_bytes()
+        with self.assertRaisesRegex(SystemExit, "no verified built-in manager"):
+            self.launch(base=False)
+        self.assertEqual((self.manager/"tv_installer.py").read_bytes(), original)
 
     def test_failed_replacement_rolls_back_existing_manager_and_cache(self):
         original = self.manager / "tv_manager.py"
@@ -305,7 +403,7 @@ class ManagerCacheTests(unittest.TestCase):
                 original = self.manager / "tv_manager.py"
                 original.write_text("# existing manager\n")
                 self.bundle(files)
-                cached = self.card / "tools/.227-tv-downloads/manager.tar.gz"
+                cached = self.card / "tools/.227-tv-downloads" / self.archive.name
                 cached.unlink(missing_ok=True)
                 with self.assertRaisesRegex(SystemExit, message):
                     self.launch()

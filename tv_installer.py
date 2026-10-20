@@ -20,12 +20,13 @@ import time
 from urllib.parse import urljoin, urlsplit
 
 from tv_dependencies import ensure
+from tv_release import TARGET, canonical_base, fetch_release, source_version, stable_version, validate_release
 from tv_system import ART, LEGACY_ART, LAUNCHER, SystemMenu, artwork_owned
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 APP_FILES = ("app.py", "tv_backend.py", "tv_media.py", "tv_quality.py", "tv_style.py",
              "tv_globe.py", "tv_filter.py", "tv_system.py", "tv_dependencies.py",
-             "tv_installer.py", "tv_manager.py", "globe_filter.c", "build_globe_filter.sh",
+             "tv_installer.py", "tv_manager.py", "tv_release.py", "globe_filter.c", "build_globe_filter.sh",
              "native/libtvglobe.so", "Melkor 227 TV.sh", "install.sh", "LICENSE",
              "README.md", "INSTALLATION.md", "PUBLISHING.md", "DEVELOPMENT.md", "CREDITS.md")
 ASSET_FILES = ("globe.json", "countries.json", "NOTICE.md", "DejaVuSansMono.ttf", "FONT-LICENSE",
@@ -260,7 +261,7 @@ def verify_tree(root):
                 or digest(safe_path(root / name)) != sha):
             raise ValueError("Bundle file verification failed: " + name)
     for name in APP_FILES:
-        if name.endswith(".py"):
+        if name.endswith(".py") and name in expected:
             compile((root / name).read_bytes(), name, "exec")
     return manifest
 
@@ -268,13 +269,15 @@ def verify_tree(root):
 class Installer:
     def __init__(self, prefix, source_dir=None, emit=None, cancel=None,
                  es_cfg="/etc/emulationstation/es_systems.cfg", themes=None,
-                 base=None, release=None, development=False):
+                  base=None, release=None, development=False, pinned=False, discovery_error=""):
         self.prefix = safe_path(prefix)
         self.source_dir = safe_path(source_dir) if source_dir else None
         self.emit, self.cancel = emit, cancel
         self.es_cfg, self.themes = Path(es_cfg), Path(themes) if themes else None
         self.base = base or os.environ.get("TV227_RELEASE_BASE", "") or (release or {}).get("base_url", "")
         self.release = release
+        self.pinned = pinned or bool(base or os.environ.get("TV227_RELEASE_BASE") or source_dir)
+        self.discovery_error = discovery_error
         self.development = development
         if self.themes is None and not development:
             candidate = Path("/etc/emulationstation/themes")
@@ -306,7 +309,7 @@ class Installer:
                 or type(info["bytes"]) is not int or not 0 < info["bytes"] <= 128*1024*1024):
             raise ValueError("Invalid pinned release metadata")
         target = safe_path(cache / name)
-        if target.is_file() and digest(target) == sha:
+        if target.is_file() and target.stat().st_size == info["bytes"] and digest(target) == sha:
             return target
         if not self.base:
             raise RuntimeError("No release URL is configured. Use the generated release installer "
@@ -397,7 +400,7 @@ class Installer:
         return dict(outcome="uninstalled", system="227", saved_data="preserved")
 
     def run(self, action):
-        if action not in ("install", "update", "uninstall"):
+        if action not in ("install", "update", "repair", "uninstall"):
             raise ValueError("Unknown installer action")
         self.validate_card()
         self.checkpoint()
@@ -427,17 +430,62 @@ class Installer:
             if action == "uninstall":
                 self.event("uninstall", "Removing TV only", "227 AI, the shared system and your TV favorites are kept")
                 return self._uninstall(app)
+            previous_version = None
+            installed = None
+            if app.exists() and not self.source_dir:
+                record = safe_path(app / "installed-release.json")
+                if record.is_file():
+                    installed = json.loads(record.read_text())
+                    validate_release(installed, manager=False, canonical=False)
+                    previous_version = installed["version"]
+                else:
+                    previous_version = source_version(app / "tv_installer.py")
+            elif self.source_dir and (app / "tv_installer.py").is_file():
+                previous_version = source_version(app / "tv_installer.py")
+            if action == "repair" and not app.exists():
+                raise RuntimeError("TV is not installed; choose Install")
+            info = None
+            if not self.source_dir:
+                if action == "repair":
+                    info = installed or fetch_release(previous_version)
+                    self.base = info.get("base_url") or canonical_base(previous_version)
+                elif not self.pinned:
+                    self.event("release", "Checking latest stable TV release")
+                    try:
+                        info = fetch_release()
+                    except Exception as exc:
+                        raise RuntimeError("Latest release check failed; Update/Install was not performed. "
+                                           "Repair and Uninstall remain available. " + str(exc)) from exc
+                    self.base = info["base_url"]
+                else:
+                    info = self.release or json.loads((Path(__file__).parent / "release.json").read_text())
+                validate_release(info, manager=False, canonical=False)
+            selected_version = source_version(self.source_dir / "tv_installer.py") if self.source_dir else info["version"]
+            if action == "repair" and selected_version != previous_version:
+                raise RuntimeError("Repair source does not match the installed TV version")
+            if action != "repair" and previous_version is not None:
+                if stable_version(selected_version) < stable_version(previous_version):
+                    raise RuntimeError("Refusing to downgrade TV from " + previous_version + " to " + selected_version)
+                if action == "update" and selected_version == previous_version:
+                    return dict(outcome="up-to-date", version=previous_version, previous_version=previous_version,
+                                latest_checked=not self.pinned, system="227", saved_data="preserved")
             with tempfile.TemporaryDirectory(prefix=".tv227-stage-", dir=tools) as directory:
                 stage = Path(directory)
                 if self.source_dir:
                     source = self.source_dir
                 else:
-                    info = self.release or json.loads((Path(__file__).parent / "release.json").read_text())
                     archive = self._download(info["bundle"], manager / "cache")
                     source = stage / "payload"
                     self.event("verify", "Verifying and unpacking TV")
                     extract_bundle(archive, source, info["bundle"].get("unpacked_bytes", 256*1024*1024))
-                    verify_tree(source)
+                    manifest = verify_tree(source)
+                    if any(manifest.get(key) != info[key] for key in ("format", "version", "target")):
+                        raise ValueError("Bundle manifest does not match selected release")
+                    if source_version(source / "tv_installer.py") != info["version"]:
+                        raise ValueError("Bundle installer version does not match selected release")
+                    # install.sh copies this into its publication stage, never after publication.
+                    record = dict(info, base_url=self.base)
+                    (stage / "selected-release.json").write_text(json.dumps(record, sort_keys=True)+"\n")
                 menu = SystemMenu(source, self.prefix, self.es_cfg, self.themes)
                 menu.validate()
                 needed = sum(p.stat().st_size for p in source.rglob("*") if p.is_file())*2+16*1024*1024
@@ -464,8 +512,16 @@ class Installer:
                         saved = stage / "previous-tools" / relative
                         saved.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(origin, saved)
-                command = [*self._authority(), "sh", str(source / "install.sh"), "--prefix", str(self.prefix),
+                # Shipped 1.0.0/1.0.1 publishers cannot stage a release record.
+                # New bundles publish themselves so future file lists remain usable.
+                legacy = stable_version(selected_version) < (1, 0, 2)
+                publisher = Path(__file__).parent / "install.sh" if legacy else source / "install.sh"
+                command = [*self._authority(), "sh", str(publisher), "--prefix", str(self.prefix),
                            "--es-cfg", str(self.es_cfg), "--app-lock-held"]
+                if legacy:
+                    command += ["--payload", str(source)]
+                if info:
+                    command += ["--release-record", str(stage / "selected-release.json")]
                 if self.themes:
                     command += ["--themes", str(self.themes)]
                 # Publication and rollback are deliberately noncancellable.
@@ -505,8 +561,11 @@ class Installer:
                         raise RuntimeError("TV installation failed: %s; rollback failed: %s; recovery files: %s"
                                            % (exc, recovery, recovery_dir)) from exc
                     raise RuntimeError("TV installation failed; previous app restored where present.\n" + str(exc)) from exc
-                self.event("complete", "227 TV installed", stdout)
-                return dict(outcome="installed" if action == "install" else "updated", system="227",
+                version = info["version"] if info else source_version(source / "tv_installer.py")
+                outcome = {"install": "installed", "update": "updated", "repair": "repaired"}[action]
+                self.event("complete", "227 TV " + outcome + " " + version, stdout)
+                return dict(outcome=outcome, version=version, previous_version=previous_version,
+                            latest_checked=not self.pinned and action != "repair", system="227",
                             launcher=str(menu.validate() / "Melkor 227 TV.sh"), saved_data="preserved")
 
 

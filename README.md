@@ -25,7 +25,9 @@ installation, or manual dependency downloads are needed on supported firmware.
 
 The installer downloads and verifies the graphical manager, app, artwork, fonts,
 map, intro, and matching playback runtime. The manager shows download progress
-and offers **Install**, **Update / repair**, and **Uninstall TV**. A Tools app
+and offers **Install**, **Update**, **Repair**, and **Uninstall TV**. **Update**
+checks the repository's latest published release and installs it after strict
+schema, filename, size, and SHA-256 verification; it never downgrades. A Tools app
 launcher is retained as a fallback. Do not power off during final installation.
 
 If your computer cannot see the games partition, do **not** format the card.
@@ -57,6 +59,8 @@ both apps can share the existing registration.
 ## Features
 
 - Interactive globe with country fly-to, zoom, thin borders, and a stick pointer.
+- Adjustable idle Earth rotation speed (Off, 0.5x-8x) in Settings; the world
+  keeps spinning unless the pointer is on the globe or you spin it yourself.
 - Country-by-country channel loading, search, favorites, and recent stations.
 - Live playback with audio through a private software-rendering libmpv runtime.
 - Real broadcaster-provided HLS quality choices, with automatic selection up to
@@ -95,27 +99,32 @@ channel availability or measured handheld playback performance.
 
 ## Updates And Removal
 
-Keep **Tools > Install 227 TV** for maintenance. **Update / repair** restores
-the release pinned by that installer. For a newer release, replace the Tools
-installer with the latest download and run it again. Close TV before updating.
+Keep **Tools > Install 227 TV** for maintenance. Since v1.0.2, **Update** checks
+the repository's fixed latest-release endpoint
+(`releases/latest/download/release.json` on `github.com/1Z99/r36s-tv`), verifies
+every field, filename, size, and SHA-256, and installs the newest stable
+release. It refuses downgrades and stays pinned only if you explicitly set
+`TV227_RELEASE_BASE`/`--base` or use `--source`. **Repair** restores exactly the
+installed release (recorded in the app as `installed-release.json`), also
+working offline from the verified download cache. **Uninstall TV** removes TV's
+program and launchers while preserving favorites, history, preferences, 227 AI,
+and the shared 227 system. Close TV before updating. The installer does not kill
+the app, restart EmulationStation, or reboot; reload the menu yourself.
 
-**v1.0.1 fixes the black/green-box thumbnail** by using the exact same standalone
-JPEG as 227 AI. Replace the v1.0.0 Tools installer with the latest download, then
-choose **Update / repair**. The old installer only repairs v1.0.0. Reload/restart
-EmulationStation after updating to refresh its cached artwork.
-
-**Uninstall TV** removes TV's program and launchers while preserving favorites,
-history, preferences, 227 AI, and the shared 227 system. No automatic reboot or
-EmulationStation restart is performed. Reload its menu yourself after changes.
+**v1.0.2 adds the rotation-speed setting and self-updating installers.**
+Installers from v1.0.2 onward automatically find future releases with their
+Update action. One older installer (v1.0.0/v1.0.1) must be replaced once with
+the latest `Install 227 TV.sh`; the replacement keeps the existing thumbnail fix
+behavior and afterwards updates itself through the same flow.
 
 ## Help
 
-**336 host tests passed**, covering offscreen rendering, local playback fixtures,
-download verification, dependency-plan auditing, v1.0.0 artwork migration, and
-rollback. The initial v1.0.0 release also passed a temporary-card hardware test
-of dependency checks, install, update, and uninstall preserving a sample AI entry.
-v1.0.1 leaves the handheld unchanged for a manual update test; that update and
-the final thumbnail display still need device-side acceptance.
+**365 host tests passed**, covering offscreen rendering, local playback fixtures,
+download verification, dependency-plan auditing, artwork migration, rollback,
+and the latest-release update/repair flow with mocked HTTP and APT. The v1.0.0
+and v1.0.1 installs and updates passed temporary-card and handheld hardware
+tests; the v1.0.2 one-file Tools flow still needs device-side acceptance for its
+new automatic-update behavior.
 
 Read [INSTALLATION.md](INSTALLATION.md) for offline installation, card selection,
 logs, safe dependency handling, troubleshooting, and advanced CLI use.
