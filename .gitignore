@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.log
+.tv227-upload.*
+dist/
+build/
+*.part
+*.part.*
+.DS_Store
