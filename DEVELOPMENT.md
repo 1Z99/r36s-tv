@@ -337,7 +337,8 @@ Installed paths:
 - Globe helper: app-local `native/libtvglobe.so`, `globe_filter.c` and executable `build_globe_filter.sh`.
 - Main launcher: `/roms/227ai/Melkor 227 TV.sh`, or the existing 227 system's registered directory.
 - Fallback: `/roms/tools/Melkor 227 TV.sh` (always installed).
-- Artwork: `images/melkor227.svg` beneath the shared 227 directory and Tools.
+- Artwork: `images/melkor227.jpg` beneath the shared 227 directory and Tools.
+  This is the unchanged 227 AI cover JPEG; v1.0.0 SVG artwork is migrated on update.
 
 Shared 227 registration preserves AI/other games and statistics, backs up changed
 XML, and is idempotent. Malformed or redirected configuration is rejected before

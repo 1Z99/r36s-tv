@@ -1,50 +1,45 @@
-# 227 TV v1.0.0
+# 227 TV v1.0.1
 
-First public release of 227 TV for R36S on **Debian 13 arm64 dArkOSRE**.
+Fix the black thumbnail with a green box in the shared **227** menu.
 
-## Install With One File
+## Thumbnail Fix
 
-1. Download **Install.227.TV.sh** below; optionally rename it **Install 227 TV.sh**.
-2. Copy it into the games SD card's existing **tools** folder.
-3. Connect the R36S to Wi-Fi and open the installer from **Tools**.
-4. Choose SD1/SD2, select Install, confirm, and wait.
-5. Restart EmulationStation when ready and launch **227 > 227 TV**.
+- TV now uses the **exact same JPEG as 227 AI**, without a label or SVG wrapper.
+- Both the manager and full application package contain the standalone JPEG.
+- Update migrates TV's menu image reference and removes owned, unreferenced
+  legacy SVG artwork. Other games' shared artwork is preserved.
+- TV statistics, saved data, 227 AI, and the shared system registration survive
+  the update. Artwork migration participates in installation rollback.
 
-No SSH or separate AI installation is needed. The installer downloads the
-graphical manager and full app/runtime with pinned size and SHA-256 checks.
-Do not download GitHub's source-code ZIP for this workflow.
+The former SVG embedded the cat JPEG alongside vector decoration. The reported
+black/green result is consistent with EmulationStation rendering the decoration
+but ignoring the embedded image. A standalone JPEG avoids that SVG limitation.
 
-## Included
+## Update From v1.0.0
 
-- Country globe, search, favorites, recent channels, and live playback with audio.
-- Automatic up-to-480p source selection and available broadcaster HLS renditions.
-- Experimental four-view matrix and controller-first green 227 interface.
-- ASCII cat thumbnail matching 227 AI, with a 227 TV label.
-- Install, update/repair, and uninstall; saved TV data and other 227 apps preserved.
-- ARM64 software-rendering libmpv, native globe helper, fonts, map, artwork,
-  original notices, and corresponding runtime source/build materials.
+1. Download **Install.227.TV.sh** below and rename it **Install 227 TV.sh**.
+2. Replace the old installer in your games card's **tools** folder.
+3. Close TV, connect to Wi-Fi, then open **Tools > Install 227 TV**.
+4. Select the card holding TV, choose **Update / repair**, and confirm.
+5. Reload/restart EmulationStation after success to refresh the cached artwork.
 
-## Requirements And Limits
+**The old v1.0.0 installer remains pinned to v1.0.0.** Its Update / repair action
+cannot discover this release automatically; replace the installer first. The
+new bootstrap verifies and replaces the cached manager before updating TV.
 
-The recorded source-app hardware test used R36S dArkOSRE build `03082026`,
-Debian 13/trixie arm64, kernel `4.4.189`. Original Ubuntu-based ArkOS, other
-distributions, and 32-bit firmware are not supported by these binaries.
-Use working firmware graphics/audio and a Wi-Fi connection. Missing approved
-Debian dependencies may be installed only when no upgrades, removals, or
-protected driver/base-system replacements are required.
+For a fresh installation, use **Install** instead. No separate AI installation
+or SSH is required. Offline users need the installer and both matching v1.0.1
+`.tar.gz` assets together in Tools; missing OS packages still require internet.
 
-**Verification:** 320 host regression tests passed. A temporary-card release test
-on the supported R36S passed read-only dependency preflight, install, update,
-uninstall, and shared AI-entry preservation. It did not open a display, install
-system packages, stop the running TV app, or modify the real ES configuration.
-The final public one-file Tools GUI flow has not yet been manually re-tested
-for this release; historical app playback tests are not a fresh-image installer
-certification. HD-only stations can be slow, channel access is not guaranteed,
-and four-view live playback remains experimental.
+## Compatibility And Verification
 
-For offline app installation, keep the installer and both `.tar.gz` assets from
-this same release together in Tools. Missing OS packages still need internet.
-For a newer release, download its new installer; update/repair is release-pinned.
+The binary target is unchanged: **Debian 13/trixie arm64 dArkOSRE on R36S**.
+Original Ubuntu-based ArkOS, other distributions, and 32-bit firmware are not
+supported by the bundled runtime. No playback/firmware upgrade is included.
 
-Full instructions and troubleshooting:
-<https://github.com/1Z99/r36s-tv/blob/main/INSTALLATION.md>.
+**336 host tests passed**, covering JPEG integrity, v1.0.0 SVG migration, AI/data
+preservation, shared artwork, idempotence, and failure rollback. The handheld
+installation is deliberately left unchanged for a manual update test; no
+device-side update or EmulationStation restart is performed for this release.
+
+Instructions: <https://github.com/1Z99/r36s-tv/blob/main/INSTALLATION.md>.

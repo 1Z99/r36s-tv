@@ -42,8 +42,8 @@ and put them together in the mounted games
 card's `tools` directory:
 
 - `Install 227 TV.sh` (rename the downloaded `Install.227.TV.sh` if needed)
-- `melkor227-tv-manager-1.0.0.tar.gz`
-- `melkor227-tv-1.0.0-darkosre-arm64.tar.gz`
+- `melkor227-tv-manager-1.0.1.tar.gz`
+- `melkor227-tv-1.0.1-darkosre-arm64.tar.gz`
 
 Then use the handheld:
 
@@ -91,6 +91,15 @@ Open **Tools > Install 227 TV** again:
 
 Close TV before updating. The installer does not kill the app, start TV, restart
 EmulationStation, reboot, upgrade firmware or alter Wi-Fi configuration.
+
+### Thumbnail Fix In v1.0.1
+
+Download the latest installer and replace the old Tools script, then select
+**Update / repair** on the existing TV card. The v1.0.0 installer remains pinned
+to v1.0.0 and cannot retrieve this fix by itself. v1.0.1 installs the exact same
+standalone JPEG as 227 AI, replacing the SVG wrapper that could appear black
+with a green box in EmulationStation. Reload/restart EmulationStation after the
+update to clear its cached thumbnail. AI files and saved TV data are preserved.
 
 ## The Shared 227 System
 

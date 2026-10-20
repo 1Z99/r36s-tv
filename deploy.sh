@@ -16,7 +16,7 @@ FILES=(app.py tv_backend.py tv_media.py tv_quality.py tv_style.py tv_globe.py 'M
        README.md INSTALLATION.md PUBLISHING.md DEVELOPMENT.md CREDITS.md
        tv_filter.py globe_filter.c build_globe_filter.sh native/libtvglobe.so
        assets/globe.json assets/countries.json assets/NOTICE.md
-       assets/DejaVuSansMono.ttf assets/FONT-LICENSE assets/melkor227.svg
+       assets/DejaVuSansMono.ttf assets/FONT-LICENSE assets/melkor227.jpg
        assets/globe-atlas.z assets/intro-frames.zip assets/intro-background.rgba
        assets/logo.rgba assets/DejaVuSansMono-Bold.ttf assets/AI-LICENSE)
 RUNTIME_FILES=$(sh "$SOURCE/install.sh" --list-runtime)

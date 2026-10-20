@@ -1,6 +1,7 @@
 """Offline shared-menu tests. No installer, device or ES process is invoked."""
 
 from contextlib import ExitStack
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -11,10 +12,11 @@ from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 import tv_system
-from tv_system import ART, LAUNCHER, SystemMenu
+from tv_system import ART, ART_SHA256, LEGACY_ART, LAUNCHER, SystemMenu, artwork_owned
 
 
 SOURCE = Path(__file__).resolve().parent
+LEGACY_SVG = b'<svg xmlns="http://www.w3.org/2000/svg"><title>Melkor 227 TV</title></svg>\n'
 
 
 class SystemMenuTests(unittest.TestCase):
@@ -24,7 +26,7 @@ class SystemMenuTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.source = self.root / "source"
         (self.source / "assets").mkdir(parents=True)
-        for name in (LAUNCHER, "assets/melkor227.svg"):
+        for name in (LAUNCHER, "assets/melkor227.jpg"):
             shutil.copyfile(SOURCE / name, self.source / name)
         self.prefix = self.root / "card with spaces"
         self.prefix.mkdir()
@@ -83,19 +85,37 @@ class SystemMenuTests(unittest.TestCase):
         (self.prefix / "tools" / LAUNCHER).write_bytes((self.source / LAUNCHER).read_bytes())
         (self.prefix / "tools/unrelated.sh").write_text("other app")
 
-    def legacy(self, owned=True):
+    def legacy(self, owned=True, art=LEGACY_ART):
         ports = self.prefix / "ports"
         (ports / "images").mkdir(parents=True)
         (ports / LAUNCHER).write_bytes((self.source / LAUNCHER).read_bytes()
                                        if owned else b"#!/bin/sh\n# someone else's script\n")
-        shutil.copyfile(self.source / "assets/melkor227.svg", ports / ART)
+        (ports / art).write_bytes(LEGACY_SVG if art == LEGACY_ART
+                                 else (self.source / "assets/melkor227.jpg").read_bytes())
         (ports / "unrelated.sh").write_text("other app")
         (ports / "gamelist.xml").write_text(
             '<gameList><!-- Ports comment -->'
-            f'<game><path>./{LAUNCHER}</path><name>Old TV</name><image>./{ART}</image></game>'
+            f'<game><path>./{LAUNCHER}</path><name>Old TV</name><image>./{art}</image></game>'
             '<game id="other"><path>./unrelated.sh</path><name>Melkor 227 TV</name>'
             '<favorite>true</favorite><playcount>19</playcount></game></gameList>')
         return ports
+
+    def v100(self):
+        self.ai()
+        (self.directory / "images").mkdir()
+        (self.directory / LAUNCHER).write_bytes((self.source / LAUNCHER).read_bytes())
+        (self.directory / LEGACY_ART).write_bytes(LEGACY_SVG)
+        gamelist = self.directory / "gamelist.xml"
+        games = tv_system._xml(gamelist, "gameList")
+        game = ET.SubElement(games, "game", {"id": "tv"})
+        for tag, text in {"path": "./" + LAUNCHER, "name": "227 TV",
+                          "image": "./" + LEGACY_ART.as_posix(), "playcount": "7",
+                          "favorite": "true", "lastplayed": "20261020T101010",
+                          "custom": "user metadata"}.items():
+            ET.SubElement(game, tag).text = text
+        gamelist.write_bytes(tv_system._payload(games))
+        gamelist.chmod(0o640)
+        return gamelist
 
     def theme(self, name="family", version="4"):
         theme = self.themes / name
@@ -122,7 +142,9 @@ class SystemMenuTests(unittest.TestCase):
         self.assertEqual(system.findtext("theme"), "227")
         game = ET.parse(self.directory / "gamelist.xml").getroot().find("game")
         self.assertEqual(game.findtext("name"), "227 TV")
-        self.assertEqual(game.findtext("image"), "./images/melkor227.svg")
+        self.assertEqual(game.findtext("image"), "./images/melkor227.jpg")
+        self.assertEqual(hashlib.sha256((self.directory / ART).read_bytes()).hexdigest(), ART_SHA256)
+        self.assertEqual((self.directory / ART).read_bytes(), (self.source / "assets/melkor227.jpg").read_bytes())
         self.assertEqual((self.directory / LAUNCHER).read_bytes(), (self.source / LAUNCHER).read_bytes())
         self.assertEqual(stat.S_IMODE((self.directory / LAUNCHER).stat().st_mode), 0o755)
         self.assertFalse((self.prefix / "ports").exists())
@@ -310,11 +332,12 @@ class SystemMenuTests(unittest.TestCase):
         outside.mkdir()
         for target in (self.cfg, self.directory, self.directory / LAUNCHER,
                        self.directory / "gamelist.xml", self.directory / "images",
-                       self.directory / ART, self.prefix / "tools",
+                       self.directory / ART, self.directory / LEGACY_ART, self.prefix / "tools",
                        self.prefix / "tools/melkor227-tv",
                        self.prefix / "tools/melkor227-tv/app.py",
                        self.prefix / "ports", self.prefix / "ports" / LAUNCHER,
-                       self.prefix / "ports/gamelist.xml"):
+                       self.prefix / "ports/gamelist.xml", self.prefix / "ports" / ART,
+                       self.prefix / "ports" / LEGACY_ART):
             with self.subTest(target=target):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.symlink_to(outside / "missing")
@@ -364,8 +387,141 @@ class SystemMenuTests(unittest.TestCase):
         self.assert_rejected()
 
     def test_missing_source_fails_before_writes(self):
-        (self.source / "assets/melkor227.svg").unlink()
+        (self.source / "assets/melkor227.jpg").unlink()
         self.assert_rejected()
+
+    def test_artwork_ownership_requires_exact_pinned_jpeg(self):
+        image = self.source / "assets/melkor227.jpg"
+        self.assertEqual(ART_SHA256, "661127b28aadff8826861349b34257ca50cf5f192652006d92f99c35b51fddbd")
+        self.assertTrue(image.read_bytes().startswith(b"\xff\xd8\xff"))
+        self.assertTrue(artwork_owned(image))
+        self.assertFalse(artwork_owned(self.root / "missing.jpg"))
+        image.write_bytes(image.read_bytes() + b"modified")
+        with self.assertRaises(ValueError):
+            artwork_owned(image)
+        self.assert_rejected()
+        image.write_bytes(LEGACY_SVG)
+        self.assert_rejected()
+
+    def test_artwork_ownership_rejects_links_and_wrong_types(self):
+        image = self.source / "assets/melkor227.jpg"
+        target = self.root / "unsafe.jpg"
+        for kind in ("symlink", "hardlink", "directory", "fifo"):
+            with self.subTest(kind=kind):
+                if kind == "symlink":
+                    target.symlink_to(image)
+                elif kind == "hardlink":
+                    target.hardlink_to(image)
+                elif kind == "directory":
+                    target.mkdir()
+                else:
+                    os.mkfifo(target)
+                with self.assertRaises(ValueError):
+                    artwork_owned(target)
+                if kind == "directory":
+                    target.rmdir()
+                else:
+                    target.unlink()
+
+    def test_v100_migrates_to_jpeg_preserving_stats_ai_config_and_idempotence(self):
+        gamelist = self.v100()
+        original_cfg = self.cfg.read_bytes()
+        original_games = tv_system._xml(gamelist, "gameList")
+        original_ai = ET.tostring(original_games.find("game"))
+        result = self.menu.install()
+        self.assertIn(str(self.directory / LEGACY_ART), result["changed"])
+        self.assertFalse((self.directory / LEGACY_ART).exists())
+        self.assertTrue(artwork_owned(self.directory / ART))
+        self.assertEqual(self.cfg.read_bytes(), original_cfg)
+        games = tv_system._xml(gamelist, "gameList")
+        self.assertEqual(ET.tostring(games.find("game")), original_ai)
+        tv = games.findall("game")[1]
+        self.assertEqual(tv.attrib, {"id": "tv"})
+        self.assertEqual(tv.findtext("image"), "./" + ART.as_posix())
+        for tag in ("playcount", "favorite", "lastplayed", "custom"):
+            self.assertEqual(tv.findtext(tag), original_games.findall("game")[1].findtext(tag))
+        self.assertIn(b"<!-- AI stats stay -->", gamelist.read_bytes())
+        self.assertEqual(stat.S_IMODE(gamelist.stat().st_mode), 0o640)
+        before = self.snapshot()
+        self.assertEqual(self.menu.install()["changed"], [])
+        self.assertEqual(self.snapshot(), before)
+
+    def test_legacy_svg_cleanup_respects_all_remaining_references(self):
+        gamelist = self.v100()
+        original = gamelist.read_bytes()
+        for action in (self.menu.install, self.menu.uninstall):
+            for tag in ("image", "thumbnail", "marquee"):
+                for owner in ("tv", "other"):
+                    with self.subTest(action=action.__name__, tag=tag, owner=owner):
+                        games = ET.fromstring(original)
+                        game = games.findall("game")[1] if owner == "tv" else games.find("game")
+                        element = game.find(tag)
+                        if element is None:
+                            element = ET.SubElement(game, tag)
+                        element.text = "./images/../" + LEGACY_ART.as_posix()
+                        gamelist.write_bytes(ET.tostring(games))
+                        (self.directory / LEGACY_ART).write_bytes(LEGACY_SVG)
+                        (self.directory / LAUNCHER).write_bytes((self.source / LAUNCHER).read_bytes())
+                        action()
+                        expected = owner == "other" or (action == self.menu.install and tag != "image")
+                        self.assertEqual((self.directory / LEGACY_ART).exists(), expected)
+
+    def test_unrelated_shared_legacy_svg_survives_install_and_uninstall(self):
+        self.v100()
+        image = self.directory / LEGACY_ART
+        image.write_bytes(b"another app's SVG")
+        original = self.snapshot()[str(image.relative_to(self.root))]
+        self.menu.install()
+        self.menu.uninstall()
+        self.assertEqual(self.snapshot()[str(image.relative_to(self.root))], original)
+
+    def test_v100_uninstall_removes_owned_unreferenced_svg_without_source(self):
+        self.v100()
+        cfg = self.cfg.read_bytes()
+        shutil.rmtree(self.source)
+        self.menu.uninstall()
+        self.assertFalse((self.directory / LEGACY_ART).exists())
+        self.assertFalse((self.directory / ART).exists())
+        self.assertEqual(self.cfg.read_bytes(), cfg)
+        self.assertEqual(self.menu.uninstall()["changed"], [])
+
+    def test_legacy_art_unsafe_types_rejected_on_install_and_uninstall(self):
+        for directory in (self.directory, self.prefix / "ports"):
+            (directory / "images").mkdir(parents=True, exist_ok=True)
+            for relative in (LEGACY_ART, ART):
+                target = directory / relative
+                outside = self.root / "outside-art"
+                outside.write_bytes(LEGACY_SVG)
+                for kind in ("hardlink", "directory", "fifo"):
+                    with self.subTest(directory=directory, relative=relative, kind=kind):
+                        if kind == "hardlink":
+                            target.hardlink_to(outside)
+                        elif kind == "directory":
+                            target.mkdir()
+                        else:
+                            os.mkfifo(target)
+                        self.assert_rejected()
+                        before = self.snapshot()
+                        with self.assertRaises(ValueError):
+                            self.menu.uninstall()
+                        self.assertEqual(self.snapshot(), before)
+                        if kind == "directory":
+                            target.rmdir()
+                        else:
+                            target.unlink()
+
+    def test_art_config_overlap_rejected_including_legacy_svg(self):
+        for directory in (self.directory, self.prefix / "ports"):
+            for relative in (ART, LEGACY_ART):
+                with self.subTest(directory=directory, relative=relative):
+                    target = directory / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    self.menu.es_cfg = target
+                    target.write_text('<systemList/>')
+                    self.assert_rejected()
+                    with self.assertRaisesRegex(ValueError, "overlaps"):
+                        self.menu.uninstall()
+                    target.unlink()
 
     def test_fresh_themes_inherit_parent_versions_preserve_posters(self):
         old = self.theme("old", "4")
@@ -407,7 +563,7 @@ class SystemMenuTests(unittest.TestCase):
         original = (ports / "gamelist.xml").read_bytes()
         self.menu.install()
         self.assertFalse((ports / LAUNCHER).exists())
-        self.assertFalse((ports / ART).exists())
+        self.assertFalse((ports / LEGACY_ART).exists())
         self.assertTrue((ports / "unrelated.sh").exists())
         remaining = ET.parse(ports / "gamelist.xml").getroot().findall("game")
         self.assertEqual(len(remaining), 1)
@@ -430,15 +586,53 @@ class SystemMenuTests(unittest.TestCase):
 
     def test_legacy_unrelated_art_is_not_deleted(self):
         ports = self.legacy()
-        (ports / ART).write_bytes(b"another app's image")
+        (ports / LEGACY_ART).write_bytes(b"another app's image")
         self.menu.install()
         self.assertFalse((ports / LAUNCHER).exists())
-        self.assertEqual((ports / ART).read_bytes(), b"another app's image")
+        self.assertEqual((ports / LEGACY_ART).read_bytes(), b"another app's image")
+
+    def test_legacy_ports_jpeg_migration_and_uninstall(self):
+        for action in (self.menu.install, self.menu.uninstall):
+            with self.subTest(action=action.__name__):
+                ports = self.legacy(art=ART)
+                action()
+                self.assertFalse((ports / LAUNCHER).exists())
+                self.assertFalse((ports / ART).exists())
+                self.assertEqual(ET.parse(ports / "gamelist.xml").getroot().find("game").attrib,
+                                 {"id": "other"})
+                shutil.rmtree(ports)
+
+    def test_legacy_ports_art_shared_via_each_metadata_tag_is_preserved(self):
+        for relative in (LEGACY_ART, ART):
+            for tag in ("image", "thumbnail", "marquee"):
+                for action in (self.menu.install, self.menu.uninstall):
+                    with self.subTest(relative=relative, tag=tag, action=action.__name__):
+                        ports = self.legacy(art=relative)
+                        gamelist = ports / "gamelist.xml"
+                        gamelist.write_text(gamelist.read_text().replace(
+                            '<favorite>', f'<{tag}>./images/../{relative}</{tag}><favorite>'))
+                        original = self.snapshot()[str((ports / relative).relative_to(self.root))]
+                        action()
+                        self.assertEqual(self.snapshot()[str((ports / relative).relative_to(self.root))],
+                                         original)
+                        shutil.rmtree(ports)
+
+    def test_legacy_ports_unrelated_jpeg_is_preserved(self):
+        ports = self.legacy(art=ART)
+        (ports / ART).write_bytes(b"\xff\xd8\xffnot the pinned cover")
+        self.menu.install()
+        self.assertEqual((ports / ART).read_bytes(), b"\xff\xd8\xffnot the pinned cover")
+
+    def test_legacy_ports_orphan_svg_is_not_migrated_by_filename_alone(self):
+        ports = self.legacy(art=ART)
+        (ports / LEGACY_ART).write_bytes(LEGACY_SVG)
+        self.menu.install()
+        self.assertTrue((ports / LEGACY_ART).exists())
 
     def test_legacy_image_symlink_rejected_before_writes(self):
         ports = self.legacy()
-        (ports / ART).unlink()
-        (ports / ART).symlink_to(self.source / "assets/melkor227.svg")
+        (ports / LEGACY_ART).unlink()
+        (ports / LEGACY_ART).symlink_to(self.source / "assets/missing.svg")
         self.assert_rejected()
 
     def test_legacy_entry_without_owned_launcher_is_preserved(self):
@@ -452,9 +646,9 @@ class SystemMenuTests(unittest.TestCase):
     def test_legacy_shared_image_and_empty_gamelist_preserved(self):
         ports = self.legacy()
         gamelist = ports / "gamelist.xml"
-        gamelist.write_text(gamelist.read_text().replace('<favorite>', f'<image>./{ART}</image><favorite>'))
+        gamelist.write_text(gamelist.read_text().replace('<favorite>', f'<image>./{LEGACY_ART}</image><favorite>'))
         self.menu.install()
-        self.assertTrue((ports / ART).exists())
+        self.assertTrue((ports / LEGACY_ART).exists())
         # A second legacy install containing only TV keeps an empty gameList.
         (ports / LAUNCHER).write_bytes((self.source / LAUNCHER).read_bytes())
         gamelist.write_text(f'<gameList><game><path>./{LAUNCHER}</path></game></gameList>')
@@ -465,13 +659,17 @@ class SystemMenuTests(unittest.TestCase):
     def test_uninstall_does_not_delete_art_used_by_other_apps(self):
         self.menu.install()
         gamelist = self.directory / "gamelist.xml"
-        games = ET.parse(gamelist).getroot()
-        other = ET.SubElement(games, "game")
-        ET.SubElement(other, "path").text = "./other.sh"
-        ET.SubElement(other, "image").text = "./" + ART.as_posix()
-        gamelist.write_bytes(ET.tostring(games))
-        self.menu.uninstall()
-        self.assertTrue((self.directory / ART).exists())
+        original = gamelist.read_bytes()
+        for tag in ("image", "thumbnail", "marquee"):
+            with self.subTest(tag=tag):
+                self.menu.install()
+                games = ET.fromstring(original)
+                other = ET.SubElement(games, "game")
+                ET.SubElement(other, "path").text = "./other.sh"
+                ET.SubElement(other, tag).text = "./" + ART.as_posix()
+                gamelist.write_bytes(ET.tostring(games))
+                self.menu.uninstall()
+                self.assertTrue(artwork_owned(self.directory / ART))
 
     def test_changed_xml_backups_are_unique_and_preserve_original_bytes(self):
         self.ai()
@@ -524,6 +722,22 @@ class SystemMenuTests(unittest.TestCase):
         self.assertEqual(self.transaction_snapshot(), before)
         self.assertFalse(list(self.directory.glob(".gamelist.xml-*")))
 
+    def test_v100_migration_write_failure_restores_svg_stats_and_jpeg_absence(self):
+        gamelist = self.v100()
+        before = self.transaction_snapshot()
+        write = tv_system._write
+
+        def fail_after_metadata(path, *args):
+            write(path, *args)
+            if path == gamelist:
+                raise OSError("migration metadata write failed")
+
+        with patch.object(tv_system, "_write", side_effect=fail_after_metadata):
+            with self.assertRaisesRegex(OSError, "migration metadata"):
+                self.menu.install()
+        self.assertEqual(self.transaction_snapshot(), before)
+        self.assertFalse((self.directory / ART).exists())
+
     def test_install_rolls_back_failure_after_each_planned_write(self):
         self.ai()
         # Include an ES registration change as well as AI metadata, legacy
@@ -535,9 +749,9 @@ class SystemMenuTests(unittest.TestCase):
         ports = self.legacy()
         (self.directory / "images").mkdir()
         (self.directory / LAUNCHER).write_bytes(b"#!/bin/sh\n# melkor227-tv old launcher\n")
-        (self.directory / ART).write_bytes((self.source / "assets/melkor227.svg").read_bytes() + b"\n<!-- old -->")
-        for path in (self.cfg, self.directory / LAUNCHER, self.directory / ART,
-                     self.directory / "gamelist.xml", ports / LAUNCHER, ports / ART):
+        (self.directory / LEGACY_ART).write_bytes(LEGACY_SVG)
+        for path in (self.cfg, self.directory / LAUNCHER, self.directory / LEGACY_ART,
+                      self.directory / "gamelist.xml", ports / LAUNCHER, ports / LEGACY_ART):
             path.chmod(0o640)
         before = self.transaction_snapshot()
         _, writes, _ = self.menu._prepare(install=True)
@@ -598,10 +812,11 @@ class SystemMenuTests(unittest.TestCase):
             self.assertFalse(path.exists(), path)
 
     def test_install_and_uninstall_roll_back_failure_after_each_removal(self):
-        self.ai()
-        self.menu.install()
+        self.v100()
+        (self.directory / ART).write_bytes((self.source / "assets/melkor227.jpg").read_bytes())
         ports = self.legacy()
-        for path in (self.directory / LAUNCHER, self.directory / ART, ports / LAUNCHER, ports / ART):
+        for path in (self.directory / LAUNCHER, self.directory / ART, self.directory / LEGACY_ART,
+                     ports / LAUNCHER, ports / LEGACY_ART):
             path.chmod(0o750)
         before = self.transaction_snapshot()
         unlink = Path.unlink

@@ -50,7 +50,7 @@ def build(output, base=""):
                       "logo.rgba", "intro-background.rgba")
     manager = {name: contents[name] for name in manager_names}
     manager["Melkor 227 TV.sh"] = contents["Melkor 227 TV.sh"]
-    manager["assets/melkor227.svg"] = contents["assets/melkor227.svg"]
+    manager["assets/melkor227.jpg"] = contents["assets/melkor227.jpg"]
     manager.update({"assets/"+name: contents["assets/"+name] for name in manager_assets})
     manager["release.json"] = json.dumps(release, sort_keys=True, indent=2).encode()+b"\n"
     bootstrap = output / ("melkor227-tv-manager-"+VERSION+".tar.gz")

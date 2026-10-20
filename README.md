@@ -99,18 +99,23 @@ Keep **Tools > Install 227 TV** for maintenance. **Update / repair** restores
 the release pinned by that installer. For a newer release, replace the Tools
 installer with the latest download and run it again. Close TV before updating.
 
+**v1.0.1 fixes the black/green-box thumbnail** by using the exact same standalone
+JPEG as 227 AI. Replace the v1.0.0 Tools installer with the latest download, then
+choose **Update / repair**. The old installer only repairs v1.0.0. Reload/restart
+EmulationStation after updating to refresh its cached artwork.
+
 **Uninstall TV** removes TV's program and launchers while preserving favorites,
 history, preferences, 227 AI, and the shared 227 system. No automatic reboot or
 EmulationStation restart is performed. Reload its menu yourself after changes.
 
 ## Help
 
-Release verification: **320 host tests passed**, including offscreen rendering,
-local playback fixtures, download verification, dependency-plan auditing, and
-rollback. On the supported R36S, a temporary-card release test passed read-only
-dependency checks, install, update, and uninstall while preserving a sample AI
-entry. This did not open a display or change the real EmulationStation config.
-The final public Tools GUI flow still needs a manual handheld acceptance run.
+**336 host tests passed**, covering offscreen rendering, local playback fixtures,
+download verification, dependency-plan auditing, v1.0.0 artwork migration, and
+rollback. The initial v1.0.0 release also passed a temporary-card hardware test
+of dependency checks, install, update, and uninstall preserving a sample AI entry.
+v1.0.1 leaves the handheld unchanged for a manual update test; that update and
+the final thumbnail display still need device-side acceptance.
 
 Read [INSTALLATION.md](INSTALLATION.md) for offline installation, card selection,
 logs, safe dependency handling, troubleshooting, and advanced CLI use.

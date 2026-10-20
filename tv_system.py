@@ -12,6 +12,7 @@ backups and newly created empty directories may remain.
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
+import hashlib
 import os
 from pathlib import Path
 import stat
@@ -21,7 +22,9 @@ import xml.etree.ElementTree as ET
 
 
 LAUNCHER = "Melkor 227 TV.sh"
-ART = Path("images/melkor227.svg")
+ART = Path("images/melkor227.jpg")
+LEGACY_ART = Path("images/melkor227.svg")
+ART_SHA256 = "661127b28aadff8826861349b34257ca50cf5f192652006d92f99c35b51fddbd"
 LOCK = Path("/tmp/227-menu.lock")
 
 
@@ -118,6 +121,16 @@ def _owned(path: Path, marker: bytes) -> bool:
     if not path.exists():
         return False
     if marker not in path.read_bytes():
+        raise ValueError(f"Refusing unrelated file at TV path: {path}")
+    return True
+
+
+def artwork_owned(path: Path) -> bool:
+    """Accept only the exact shipped JPEG, rejecting unsafe or unrelated files."""
+    _safe(path, "file")
+    if not path.exists():
+        return False
+    if hashlib.sha256(path.read_bytes()).hexdigest() != ART_SHA256:
         raise ValueError(f"Refusing unrelated file at TV path: {path}")
     return True
 
@@ -260,12 +273,15 @@ class SystemMenu:
         _safe(self.prefix / "tools/melkor227-tv/app.py", "file")
         launcher = directory / LAUNCHER
         art = directory / ART
-        if self.es_cfg in {launcher, art, directory / "gamelist.xml",
-                           self.prefix / "ports" / LAUNCHER, self.prefix / "ports" / ART,
-                           self.prefix / "ports/gamelist.xml"}:
+        if self.es_cfg in {launcher, art, directory / LEGACY_ART, directory / "gamelist.xml",
+                            self.prefix / "ports" / LAUNCHER, self.prefix / "ports" / ART,
+                            self.prefix / "ports" / LEGACY_ART,
+                            self.prefix / "ports/gamelist.xml"}:
             raise ValueError("ES configuration overlaps a managed TV menu path")
         launcher_owned = _owned(launcher, b"melkor227-tv")
-        art_owned = _owned(art, b"<title>Melkor 227 TV</title>")
+        art_owned = artwork_owned(art)
+        old_art = directory / LEGACY_ART
+        _safe(old_art, "file")
         gamelist = directory / "gamelist.xml"
         games = _xml(gamelist, "gameList")
         entries = _entries(games, directory, launcher)
@@ -280,10 +296,10 @@ class SystemMenu:
 
         if install:
             origin = self.source / LAUNCHER
-            image = self.source / "assets/melkor227.svg"
+            image = self.source / "assets/melkor227.jpg"
             _safe(origin, "file", required=True)
             _safe(image, "file", required=True)
-            if not _owned(origin, b"melkor227-tv") or not _owned(image, b"<title>Melkor 227 TV</title>"):
+            if not _owned(origin, b"melkor227-tv") or not artwork_owned(image):
                 raise ValueError("Invalid TV source assets")
             writes[launcher] = (origin.read_bytes(), 0o755, False)
             writes[art] = (image.read_bytes(), 0o644, False)
@@ -319,8 +335,13 @@ class SystemMenu:
             if launcher_owned:
                 removes.append(launcher)
             if art_owned and not any(_matches(directory, node.text, art)
-                                     for node in games.iter() if node.tag in {"image", "thumbnail", "marquee"}):
+                                      for node in games.iter() if node.tag in {"image", "thumbnail", "marquee"}):
                 removes.append(art)
+
+        if (old_art.exists() and b"<title>Melkor 227 TV</title>" in old_art.read_bytes()
+                and not any(_matches(directory, node.text, old_art) for node in games.iter()
+                            if node.tag in {"image", "thumbnail", "marquee"})):
+            removes.append(old_art)
 
         # Migrate only the historical exact Ports launcher, never name matches.
         ports = self.prefix / "ports"
@@ -330,21 +351,27 @@ class SystemMenu:
         legacy_list = ports / "gamelist.xml"
         legacy_games = _xml(legacy_list, "gameList")
         legacy_entries = _entries(legacy_games, ports, legacy)
+        for relative in (LEGACY_ART, ART):
+            _safe(ports / relative, "file")
         if legacy_owned:
-            legacy_art = ports / ART
-            used_art = any(_matches(ports, game.findtext("image"), legacy_art) for game in legacy_entries)
+            used_art = {ports / relative for relative in (LEGACY_ART, ART)
+                        if any(_matches(ports, node.text, ports / relative)
+                               for game in legacy_entries for node in game.iter()
+                               if node.tag in {"image", "thumbnail", "marquee"})}
             for game in legacy_entries:
                 legacy_games.remove(game)
             if legacy_entries:
                 xml_change(legacy_list, legacy_games)
             removes.append(legacy)
-            if used_art:
-                _safe(legacy_art, "file")
+            for legacy_art in sorted(used_art):
                 shared = any(_matches(ports, node.text, legacy_art) for node in legacy_games.iter()
                              if node.tag in {"image", "thumbnail", "marquee"})
-                if (not shared and legacy_art.exists()
-                        and b"<title>Melkor 227 TV</title>" in legacy_art.read_bytes()):
-                    removes.append(legacy_art)
+                if not shared and legacy_art.exists():
+                    data = legacy_art.read_bytes()
+                    owned = (b"<title>Melkor 227 TV</title>" in data if legacy_art == ports / LEGACY_ART
+                             else hashlib.sha256(data).hexdigest() == ART_SHA256)
+                    if owned:
+                        removes.append(legacy_art)
         return directory, writes, removes
 
     def _theme_writes(self, writes):

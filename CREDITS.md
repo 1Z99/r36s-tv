@@ -18,7 +18,7 @@ is not bundled here. The tested release target is Debian 13 arm64 dArkOSRE.
 
 - The intro frames, green background, 227 logo, and ASCII cat cover are from
   **1Z99's [227 AI](https://github.com/1Z99/project-ai-r36s)** original artwork,
-  distributed under its MIT notice. The cover is adapted with a `227 TV` label.
+  distributed under its MIT notice. TV uses the same unchanged cover JPEG as AI.
   Upstream credits: <https://github.com/1Z99/project-ai-r36s/blob/main/CREDITS.md>.
 - DejaVu Sans Mono regular and bold fonts are bundled under the Bitstream Vera
   and DejaVu terms. Full notice: [assets/FONT-LICENSE](assets/FONT-LICENSE).

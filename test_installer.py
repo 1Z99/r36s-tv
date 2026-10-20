@@ -22,6 +22,7 @@ import tv_system
 from tv_manager import Manager
 
 ROOT = Path(__file__).resolve().parent
+LEGACY_SVG = b'<svg xmlns="http://www.w3.org/2000/svg"><title>Melkor 227 TV</title></svg>\n'
 
 
 class InstallerTests(unittest.TestCase):
@@ -50,6 +51,29 @@ class InstallerTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, target)
         shutil.copytree(ROOT / "assets", self.source / "assets")
+
+    def old_style_install(self):
+        app = self.card / "tools/melkor227-tv"
+        (app / "assets").mkdir(parents=True)
+        (app / "old.txt").write_text("working")
+        system = self.card / "227ai"
+        for image in (app / "assets/melkor227.svg", app.parent / "images/melkor227.svg",
+                      system / "images/melkor227.svg"):
+            image.parent.mkdir(parents=True, exist_ok=True)
+            image.write_bytes(LEGACY_SVG)
+        for launcher in (app.parent / tv_system.LAUNCHER, system / tv_system.LAUNCHER):
+            shutil.copyfile(self.source / tv_system.LAUNCHER, launcher)
+        (system / "227 AI.sh").write_text("AI launcher remains unchanged\n")
+        (system / "gamelist.xml").write_text(
+            '<gameList><game><path>./Melkor 227 TV.sh</path><name>227 TV</name>'
+            '<image>./images/melkor227.svg</image><playcount>17</playcount></game>'
+            '<game><path>./227 AI.sh</path><name>227 AI</name><playcount>42</playcount></game></gameList>')
+        self.cfg.write_text('<systemList><system><name>227</name><path>'+str(system)+
+                            '</path><command>%ROM%</command><extension>.sh .SH</extension>'
+                            '<theme>227</theme></system></systemList>')
+        self.data.mkdir(exist_ok=True)
+        (self.data / "favorites.json").write_text('["saved favorite"]')
+        return app
 
     def assert_app_locked(self):
         with (self.data / "app.lock").open("a+b") as stream:
@@ -158,6 +182,90 @@ class InstallerTests(unittest.TestCase):
                 worker.run("install")
         self.assertFalse((self.card / "227ai/Melkor 227 TV.sh").exists())
 
+    def test_old_style_source_update_migrates_art_and_preserves_ai_and_data(self):
+        self.source_tree()
+        app = self.old_style_install()
+        original_cfg = self.cfg.read_bytes()
+        status, output = self.source_install()
+        self.assertEqual(status, 0, output)
+        for directory, relative in ((app, Path("assets/melkor227.jpg")),
+                                    (app.parent, tv_system.ART),
+                                    (self.card / "227ai", tv_system.ART)):
+            self.assertEqual(core.digest(directory / relative), tv_system.ART_SHA256)
+            self.assertFalse((directory / relative.with_suffix(".svg")).exists())
+        games = (self.card / "227ai/gamelist.xml").read_text()
+        self.assertIn("./images/melkor227.jpg", games)
+        self.assertNotIn("melkor227.svg", games)
+        self.assertIn("<playcount>17</playcount>", games)
+        self.assertIn("<playcount>42</playcount>", games)
+        self.assertEqual((self.card / "227ai/227 AI.sh").read_text(), "AI launcher remains unchanged\n")
+        self.assertEqual((self.data / "favorites.json").read_text(), '["saved favorite"]')
+        self.assertEqual(self.cfg.read_bytes(), original_cfg)
+        self.assertEqual((app / "old.txt").read_text(), "working")
+
+    def test_source_update_keeps_shared_and_unrelated_legacy_app_art(self):
+        self.source_tree()
+        for tag in ("image", "thumbnail", "marquee", "absolute", "unrelated"):
+            with self.subTest(tag=tag), tempfile.TemporaryDirectory(dir=self.root) as folder:
+                self.card = Path(folder)
+                self.cfg = self.card / "es_systems.cfg"
+                app = self.old_style_install()
+                old_app_art = app / "assets/melkor227.svg"
+                old_tools_art = app.parent / tv_system.LEGACY_ART
+                if tag == "unrelated":
+                    old_app_art.write_bytes(b"unrelated custom SVG")
+                else:
+                    for directory, relative in ((app, "assets/melkor227.svg"),
+                                                (app.parent, "images/../images/melkor227.svg")):
+                        element = "image" if tag == "absolute" else tag
+                        reference = str(directory / relative) if tag == "absolute" else "./" + relative
+                        (directory / "gamelist.xml").write_text(
+                            '<gameList><game><path>./other.sh</path><'+element+'>'+reference+
+                            '</'+element+'></game></gameList>')
+                original = old_app_art.read_bytes()
+                status, output = self.source_install()
+                self.assertEqual(status, 0, output)
+                self.assertEqual(old_app_art.read_bytes(), original)
+                self.assertEqual(old_tools_art.exists(), tag != "unrelated")
+                self.assertEqual(core.digest(app.parent / tv_system.ART), tv_system.ART_SHA256)
+
+    def test_old_style_source_update_failure_restores_exact_tools_art_tree(self):
+        self.source_tree()
+        for existing_jpeg in (False, True):
+            with self.subTest(existing_jpeg=existing_jpeg), tempfile.TemporaryDirectory(dir=self.root) as folder:
+                self.card = Path(folder)
+                self.cfg = self.card / "es_systems.cfg"
+                app = self.old_style_install()
+                tools = app.parent
+                if existing_jpeg:
+                    shutil.copyfile(self.source / "assets/melkor227.jpg", tools / tv_system.ART)
+                    (tools / tv_system.ART).chmod(0o600)
+                (tools / "images/other.jpg").write_bytes(b"unrelated artwork")
+
+                def snapshot():
+                    return {path.relative_to(tools): (path.stat().st_mode & 0o777,
+                            path.read_bytes() if path.is_file() else None) for path in tools.rglob("*")}
+
+                original = snapshot()
+                original_cfg = self.cfg.read_bytes()
+                original_games = (self.card / "227ai/gamelist.xml").read_bytes()
+
+                def fail_menu():
+                    self.assert_app_locked()
+                    self.assertEqual(core.digest(tools / tv_system.ART), tv_system.ART_SHA256)
+                    self.assertFalse((tools / tv_system.LEGACY_ART).exists())
+                    self.assertFalse((app / "assets/melkor227.svg").exists())
+                    raise OSError("injected artwork migration failure")
+
+                with patch.object(core.SystemMenu, "install", side_effect=fail_menu):
+                    status, output = self.source_install()
+                self.assertEqual(status, 1, output)
+                self.assertIn("injected artwork migration failure", output)
+                self.assertEqual(snapshot(), original)
+                self.assertEqual(self.cfg.read_bytes(), original_cfg)
+                self.assertEqual((self.card / "227ai/gamelist.xml").read_bytes(), original_games)
+                self.assertEqual((self.data / "favorites.json").read_text(), '["saved favorite"]')
+
     def test_failed_update_restores_previous_app(self):
         self.source_tree()
         app = self.card / "tools/melkor227-tv"
@@ -185,7 +293,11 @@ class InstallerTests(unittest.TestCase):
                     fallback.write_text("# melkor227-tv old launcher")
                     art = app.parent / "images/melkor227.svg"
                     art.parent.mkdir(exist_ok=True)
-                    art.write_text("<title>Melkor 227 TV</title> old art")
+                    art.write_bytes(LEGACY_SVG)
+                    jpeg = app.parent / tv_system.ART
+                    if existing:
+                        shutil.copyfile(self.source / "assets/melkor227.jpg", jpeg)
+                        jpeg.chmod(0o600)
                     process = Mock(returncode=1, pid=12345)
 
                     def fail(*args, **kwargs):
@@ -195,7 +307,9 @@ class InstallerTests(unittest.TestCase):
                         app.mkdir()
                         (app / "failed-version.txt").write_text("must disappear")
                         fallback.write_text("# melkor227-tv failed launcher")
-                        art.write_text("<title>Melkor 227 TV</title> failed art")
+                        art.unlink()
+                        shutil.copyfile(self.source / "assets/melkor227.jpg", jpeg)
+                        jpeg.chmod(0o644)
                         if failure == "timeout":
                             raise subprocess.TimeoutExpired("install", 120)
                         if failure == "oserror":
@@ -227,7 +341,12 @@ class InstallerTests(unittest.TestCase):
                         self.assertEqual((app / "old.txt").read_text(), "working")
                         shutil.rmtree(app)
                     self.assertEqual(fallback.read_text(), "# melkor227-tv old launcher")
-                    self.assertEqual(art.read_text(), "<title>Melkor 227 TV</title> old art")
+                    self.assertEqual(art.read_bytes(), LEGACY_SVG)
+                    self.assertEqual(jpeg.exists(), existing)
+                    if existing:
+                        self.assertEqual(core.digest(jpeg), tv_system.ART_SHA256)
+                        self.assertEqual(jpeg.stat().st_mode & 0o777, 0o600)
+                        jpeg.unlink()
                     self.assertEqual(kill.call_count, failure != "exit")
 
     def test_spawn_oserror_and_rollback_failure_preserve_recovery_backup(self):
@@ -308,7 +427,8 @@ class InstallerTests(unittest.TestCase):
         directories = {".", "melkor227-tv", "227-tv-manager", "images", "melkor227-tv/assets", "melkor227-tv/native"}
         for relative in (".", "melkor227-tv", "227-tv-manager", "melkor227-tv/assets", "melkor227-tv/native", "melkor227-tv/app.py",
                          "melkor227-tv/assets/logo.rgba", "melkor227-tv/native/libtvglobe.so",
-                         "227-tv-manager/install.lock", "images", "Melkor 227 TV.sh", "images/melkor227.svg"):
+                         "227-tv-manager/install.lock", "images", "Melkor 227 TV.sh", "images/melkor227.svg",
+                         "images/melkor227.jpg"):
             for kind in ("symlink", "hardlink"):
                 if kind == "hardlink" and relative in directories:
                     continue
@@ -338,12 +458,12 @@ class InstallerTests(unittest.TestCase):
                     self.assertFalse(self.cfg.exists())
                     self.assertFalse((self.card / "227ai").exists())
         self.card = original_card
-        for relative in ("Melkor 227 TV.sh", "images/melkor227.svg"):
+        for relative in ("Melkor 227 TV.sh", "images/melkor227.svg", "images/melkor227.jpg"):
             path = self.card / "tools" / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("unrelated user content")
             for action in ("install", "update", "uninstall"):
-                with self.assertRaisesRegex(ValueError, "unrelated Tools"):
+                with self.assertRaisesRegex(ValueError, "unrelated"):
                     self.worker(source_dir=self.source).run(action)
             status, output = self.source_install()
             self.assertNotEqual(status, 0, output)
@@ -385,6 +505,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(list(app.iterdir()), [app / "old.txt"])
         self.assertEqual(fallback.read_text(), "# melkor227-tv old launcher")
         self.assertFalse((app.parent / "images/melkor227.svg").exists())
+        self.assertFalse((app.parent / "images").exists())
         self.assertFalse(self.cfg.exists())
 
     def test_direct_source_install_rejects_running_app(self):
@@ -576,7 +697,7 @@ class InstallerTests(unittest.TestCase):
         with patch.object(core.SystemMenu, "install", side_effect=OSError("registration failed")):
             status, output = self.source_install()
         self.assertEqual(status, 1, output)
-        for relative in ("melkor227-tv", "Melkor 227 TV.sh", "images/melkor227.svg"):
+        for relative in ("melkor227-tv", "Melkor 227 TV.sh", "images"):
             self.assertFalse((self.card / "tools" / relative).exists())
         self.assertFalse(self.cfg.exists())
 
@@ -601,7 +722,8 @@ class InstallerTests(unittest.TestCase):
         self.assertNotIn("@MANAGER_SHA256@", script)
         with tarfile.open(output / release["manager"]["file"]) as bundle:
             self.assertIn("Melkor 227 TV.sh", bundle.getnames())
-            self.assertIn("assets/melkor227.svg", bundle.getnames())
+            self.assertIn("assets/melkor227.jpg", bundle.getnames())
+            self.assertNotIn("assets/melkor227.svg", bundle.getnames())
             self.assertIn("assets/intro-background.rgba", bundle.getnames())
         archive = output / release["bundle"]["file"]
         self.assertEqual(core.digest(archive), release["bundle"]["sha256"])

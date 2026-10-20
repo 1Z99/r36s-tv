@@ -20,16 +20,16 @@ import time
 from urllib.parse import urljoin, urlsplit
 
 from tv_dependencies import ensure
-from tv_system import SystemMenu
+from tv_system import ART, LEGACY_ART, LAUNCHER, SystemMenu, artwork_owned
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 APP_FILES = ("app.py", "tv_backend.py", "tv_media.py", "tv_quality.py", "tv_style.py",
              "tv_globe.py", "tv_filter.py", "tv_system.py", "tv_dependencies.py",
              "tv_installer.py", "tv_manager.py", "globe_filter.c", "build_globe_filter.sh",
              "native/libtvglobe.so", "Melkor 227 TV.sh", "install.sh", "LICENSE",
              "README.md", "INSTALLATION.md", "PUBLISHING.md", "DEVELOPMENT.md", "CREDITS.md")
 ASSET_FILES = ("globe.json", "countries.json", "NOTICE.md", "DejaVuSansMono.ttf", "FONT-LICENSE",
-               "melkor227.svg", "globe-atlas.z", "intro-frames.zip", "intro-background.rgba",
+               "melkor227.jpg", "globe-atlas.z", "intro-frames.zip", "intro-background.rgba",
                "logo.rgba", "DejaVuSansMono-Bold.ttf", "AI-LICENSE")
 
 
@@ -92,15 +92,31 @@ def managed_destinations(prefix):
                 raise ValueError("Unexpected managed file type: " + str(path))
             if stat.S_ISREG(mode.st_mode) and mode.st_nlink != 1:
                 raise ValueError("Refusing hardlinked destination: " + str(path))
-    for relative, marker in (("Melkor 227 TV.sh", b"melkor227-tv"),
-                             ("images/melkor227.svg", b"<title>Melkor 227 TV</title>")):
+    for relative, marker in ((LAUNCHER, b"melkor227-tv"),
+                             (LEGACY_ART, b"<title>Melkor 227 TV</title>")):
         path = safe_path(tools / relative)
         if path.exists():
             if not path.is_file() or path.stat().st_nlink != 1:
                 raise ValueError("Unsafe Tools destination: " + str(path))
             if marker not in path.read_bytes():
                 raise ValueError("Refusing unrelated Tools file: " + str(path))
+    artwork_owned(tools / ART)
     return app
+
+
+def prune_legacy_art(directory, relative, menu_directory=None):
+    """Remove only marked SVG artwork that no menu metadata still references."""
+    from tv_system import _matches, _xml
+
+    path = safe_path(directory / relative)
+    if not path.exists() or b"<title>Melkor 227 TV</title>" not in path.read_bytes():
+        return
+    games = _xml(directory / "gamelist.xml", "gameList")
+    # A staged copy's absolute references still name its live app directory.
+    menu_directory = menu_directory or directory
+    if not any(_matches(menu_directory, node.text, menu_directory / relative) for node in games.iter()
+               if node.tag in {"image", "thumbnail", "marquee"}):
+        path.unlink()
 
 
 @contextmanager
@@ -166,7 +182,7 @@ def restore_app(app, stage):
     backup = stage / "previous-app"
     if backup.exists():
         os.replace(backup, app)
-    for relative in ("Melkor 227 TV.sh", "images/melkor227.svg"):
+    for relative in (LAUNCHER, LEGACY_ART, ART):
         target = app.parent / relative
         saved = stage / "previous-tools" / relative
         if saved.exists():
@@ -174,6 +190,10 @@ def restore_app(app, stage):
             os.replace(saved, target)
         else:
             target.unlink(missing_ok=True)
+    images = app.parent / "images"
+    if (images.exists() and not (stage / "previous-tools/images").exists()
+            and not any(images.iterdir())):
+        images.rmdir()
 
 
 def discover_cards():
@@ -436,7 +456,9 @@ class Installer:
                 backup = stage / "previous-app"
                 if app.exists():
                     shutil.copytree(app, backup, symlinks=True)
-                for relative in ("Melkor 227 TV.sh", "images/melkor227.svg"):
+                if (tools / "images").exists():
+                    (stage / "previous-tools/images").mkdir(parents=True)
+                for relative in (LAUNCHER, LEGACY_ART, ART):
                     origin = tools / relative
                     if origin.exists():
                         saved = stage / "previous-tools" / relative

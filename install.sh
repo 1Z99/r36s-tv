@@ -140,13 +140,13 @@ try:
     if args.check_only:
         sys.exit(0)
     sys.path.insert(0, str(source))
-    from tv_installer import app_locked, managed_destinations, restore_app, safe_path
+    from tv_installer import app_locked, managed_destinations, prune_legacy_art, restore_app, safe_path
     prefix = safe_path(args.prefix.expanduser())
     if not prefix.is_dir():
         raise RuntimeError("Card root must already exist and be mounted: {} (not created)".format(prefix))
     if not os.access(prefix, os.W_OK | os.X_OK):
         raise RuntimeError("Card root is not writable: {}".format(prefix))
-    from tv_system import SystemMenu
+    from tv_system import ART, LEGACY_ART, LAUNCHER, SystemMenu
     menu = SystemMenu(source, prefix, args.es_cfg, args.themes)
     menu.validate()
     app = managed_destinations(prefix)
@@ -159,7 +159,7 @@ try:
              "Melkor 227 TV.sh", "install.sh", "LICENSE", "README.md", "INSTALLATION.md", "PUBLISHING.md",
              "DEVELOPMENT.md", "CREDITS.md"]
     assets = ["globe.json", "countries.json", "NOTICE.md", "DejaVuSansMono.ttf",
-              "FONT-LICENSE", "melkor227.svg", "globe-atlas.z", "intro-frames.zip",
+              "FONT-LICENSE", "melkor227.jpg", "globe-atlas.z", "intro-frames.zip",
               "intro-background.rgba", "logo.rgba", "DejaVuSansMono-Bold.ttf", "AI-LICENSE"]
     for relative in files + ["assets/" + name for name in assets]:
         if not (source / relative).is_file():
@@ -195,7 +195,10 @@ try:
             target = safe_path(staged / relative)
             shutil.copyfile(source / relative, target)
             target.chmod(0o755 if relative.endswith(".sh") else 0o644)
-        for relative in ("Melkor 227 TV.sh", "images/melkor227.svg"):
+        prune_legacy_art(staged, Path("assets") / LEGACY_ART.name, menu_directory=app)
+        if (tools / "images").exists():
+            (stage / "previous-tools/images").mkdir(parents=True)
+        for relative in (LAUNCHER, LEGACY_ART, ART):
             original = tools / relative
             if original.exists():
                 saved = stage / "previous-tools" / relative
@@ -208,14 +211,15 @@ try:
         try:
             os.replace(staged, app)
             for relative, origin, mode in (
-                    ("Melkor 227 TV.sh", source / "Melkor 227 TV.sh", 0o755),
-                    ("images/melkor227.svg", source / "assets/melkor227.svg", 0o644)):
+                    (LAUNCHER, source / LAUNCHER, 0o755),
+                    (ART, source / "assets" / ART.name, 0o644)):
                 target = tools / relative
                 target.parent.mkdir(exist_ok=True)
                 replacement = stage / target.name
                 shutil.copyfile(origin, replacement)
                 replacement.chmod(mode)
                 os.replace(replacement, target)
+            prune_legacy_art(tools, LEGACY_ART)
             registration = menu.install()
         except Exception as error:
             try:
