@@ -26,8 +26,30 @@ is not bundled here. The tested release target is Debian 13 arm64 dArkOSRE.
 - Natural Earth map data is public domain. Derived geometry and raster atlas
   retain the provenance notice in [assets/NOTICE.md](assets/NOTICE.md).
   Upstream: <https://www.naturalearthdata.com/>.
-- README demo captures are generated from this app's offline demo scenes by
-  1Z99 and are covered by the project artwork MIT notice.
+
+## Documentation Screenshots
+
+The [README gallery](assets/readme/README.md) uses native 640 x 480 PC captures
+from the project's website capture run on **2026-10-21**, not handheld photos.
+Watch and matrix contain real France 24 video decoded through the production
+libmpv/SDL interface. The matrix shows four distinct language feeds: French,
+English, Arabic and Spanish. Browser/search and installer states are scripted;
+Settings and quality in the website gallery retain playback behind opaque menus.
+
+The original 227 interface/artwork retains the notices above. **Broadcast frames,
+station marks and underlying programs belong to France 24 / France Medias Monde
+and the respective rights holders; they are not covered by the project's MIT
+license.** No broadcaster endorsement is implied. Public stream listings do not
+grant redistribution or rebroadcast rights. See
+[assets/readme/NOTICE.md](assets/readme/NOTICE.md) for broadcast sources and rights,
+and [captures.json](assets/readme/captures.json) for capture provenance.
+
+The website's explicitly opted-in `dev/render_tv_captures.py --capture-streams`
+workflow used real network video decoding with null/disabled audio. No handheld,
+physical controller or personal saved state was accessed, and no installer action
+was executed. These images do not establish audio quality, handheld performance,
+or renewed hardware compatibility. Stock app `--demo` scenes are separate offline
+fixtures and must not be described as real playback.
 
 ## Playback Runtime
 
