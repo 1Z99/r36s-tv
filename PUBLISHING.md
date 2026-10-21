@@ -4,6 +4,25 @@ Repository: <https://github.com/1Z99/r36s-tv>. The user-facing entry point is a
 single generated **Install 227 TV.sh**, launched from the games card's Tools
 folder. Do not distribute the unexpanded `install227tv.sh` template as that file.
 
+## GitHub Pages
+
+The repository website is <https://1z99.github.io/r36s-tv/>. GitHub Pages serves
+only `main:/docs`, never the application tree, runtime, tests or release files.
+`docs/index.html` immediately opens the canonical project documentation at
+<https://1z99.github.io/project-ai-r36s/projects/227-tv/>. That shared site is the
+single source for the AI and TV manuals, galleries and search.
+
+The entry page has no JavaScript, forms, analytics or dynamic redirect target.
+It uses a fixed HTTPS destination, a canonical link, restrictive content policy,
+local CSS and ordinary fallback links. Query strings are not forwarded. Keep
+`.nojekyll` so Pages serves this as static content. Do not copy application data,
+logs, credentials or device configuration into `docs/`.
+
+For a website-only change, validate the redirect and fallback links, commit/push
+the reviewed documentation, and select **main /docs** in the repository's Pages
+settings. No version bump, release rebuild or asset replacement is required.
+Keep the repository's Website field pointed at its Pages address.
+
 ## Verify Source
 
 Use a clean, reviewed source tree with the tested ARM64 artifacts present.

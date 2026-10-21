@@ -9,7 +9,7 @@ playback server, or 227 AI installation required.
 [![Platform: dArkOSRE Debian 13 ARM64](https://img.shields.io/badge/platform-dArkOSRE%20Debian%2013%20ARM64-356b50)](INSTALLATION.md#supported-handheld)
 
 **[Download Install 227 TV.sh](https://github.com/1Z99/r36s-tv/releases/latest/download/Install.227.TV.sh)**
-| **[Project Website](https://1z99.github.io/project-ai-r36s/projects/227-tv/)**
+| **[Project Website](https://1z99.github.io/r36s-tv/)**
 | [User Guide](USER_GUIDE.md)
 | [Screenshots](assets/readme/README.md)
 | [All Releases](https://github.com/1Z99/r36s-tv/releases)
